@@ -97,9 +97,9 @@
     {
       "name": "web",
       "repository": "jeffreypalermo.com",
+      "hosting": "own",
       "port": 8080,
-      "healthPath": "/_health/ready",
-      "database": false
+      "healthPath": "/_health/ready"
     }
   ],
   "environments": [
