@@ -47,6 +47,9 @@ if (-not $ListChecks) {
     # The first app runs as a container app, or on App Service (deployables[].hosting "appservice"): the checks of
     # the artifact, the size, the idle cost and the placement ask the hosting it has.
     $onAppService = $system.deployables[0]['hosting'] -eq 'appservice'
+    # ... or brings its own runtime (hosting "own"): the system's infra/ creates nothing for it, so the checks of what
+    # the stack creates for the first app do not apply; its release's package and its own verify step answer for it.
+    $ownRuntime = $system.deployables[0]['hosting'] -eq 'own'
 }
 
 function Write-Pass { param([string] $Message) Write-Host "PASS $Message" }
@@ -139,6 +142,7 @@ function Get-Group([string] $Environment) {
     [string] $system.azure.resourceGroups[$tier]
 }
 function Get-App([string] $Environment) {
+    if ($ownRuntime) { Skip-Check "$deployable brings its own runtime: the system creates no app for it to inspect" }
     # By the name the stack reports: a shared or moved Container Apps environment gives the app a suffix.
     $name = ([string] (az stack group show --name "stack-$slug-$Environment" --resource-group (Get-Group $Environment) --query "outputs.deployables.value[?name=='$deployable'].containerApp | [0]" --output tsv)).Trim()
     if (-not $name) { throw "stack-$slug-$Environment lists no container app for $deployable (a failed or unfinished apply?)" }
@@ -217,6 +221,12 @@ $checks = [ordered] @{
     'CAP-012' = { Assert-That ((Get-RepoFile $systemRepo '.github/workflows/env-checks.yml') -match 'head\.repo\.full_name == github\.repository') 'preview runs for forks'; 'the credentialed preview runs only for branches of the repository' }
     'CAP-013' = {
         $v = (Get-LastDeployment $deployableProject $first).Version
+        if ($ownRuntime) {
+            # The release's package (the application's deploy and verify code) carries the release's number; the
+            # application's own verify step compares it with what runs.
+            Assert-That ((Get-DeployedPackage $first).package -eq $v) "release $v deploys package $((Get-DeployedPackage $first).package)"
+            return "release $v = package version in $first; $deployable verifies the running version itself"
+        }
         if ($onAppService) {
             # The build stamps the version into the app, which reports it; the release's package carries the same number.
             $running = [string] (Invoke-RestMethod -Uri "$((Get-Site $first).url)/_version" -TimeoutSec 120).version
@@ -232,7 +242,7 @@ $checks = [ordered] @{
         "$($files.Count) step scripts stop on errors"
     }
     'CAP-020' = {
-        if ($onAppService) {
+        if ($onAppService -or $ownRuntime) {
             # One zip per version in the built-in feed; every environment's release deploys the package of its own number.
             $shown = foreach ($e in $environments) { if (-not (Find-LastDeployment $deployableProject $e)) { continue }; $p = Get-DeployedPackage $e; Assert-That ($p.release -eq $p.package) "$e runs release $($p.release) with package $($p.package)"; "$e $($p.package)" }
             if (-not $shown) { Skip-Check "no successful $deployableProject deployment yet" }
@@ -243,7 +253,7 @@ $checks = [ordered] @{
         "one image per version across $($environments -join ', ')"
     }
     'CAP-021' = {
-        if ($onAppService) {
+        if ($onAppService -or $ownRuntime) {
             # The package feed keeps the first upload of a version: the release workflow pushes with IgnoreIfExists only.
             Assert-AppRepository
             $modes = @([regex]::Matches((Get-RepoFile $appRepo '.github/workflows/release.yml'), 'overwrite_mode:\s*(\S+)') | ForEach-Object { $_.Groups[1].Value })
@@ -299,6 +309,7 @@ $checks = [ordered] @{
             if ($paid) { return "Free plans, except the declared Basic plan of $($paid -join ', '), which is Free while the system is dormant" }
             return 'every app runs on a Free plan'
         }
+        if ($ownRuntime -and @($system.deployables).Count -eq 1) { Skip-Check "$deployable brings its own runtime: the system creates no app whose idle cost it could declare" }
         # Every container app scales to zero, except a deployable that system.json declares always on ("alwaysOn":
         # true: a background service), which keeps exactly one replica: a declared cost, not an accident.
         $alwaysOn = @($system.deployables | Where-Object { $_['alwaysOn'] -eq $true } | ForEach-Object { [string] $_.name })

@@ -40,8 +40,14 @@ $deployables = @($stack.outputs.deployables.value | Where-Object { -not $only -o
 if ($stack.outputs.ContainsKey('standby')) {
     $deployables += @($stack.outputs.standby.value | Where-Object { -not $only -or $_.name -eq $only })
 }
+if ($deployables.Count -eq 0 -and -not $only) {
+    # Every deployable of the system brings its own runtime (hosting "own"): infra/ creates none, and each verifies
+    # itself in its own project.
+    Write-Highlight "Stack stack-$slug-$environmentName creates no deployable: each application verifies its own."
+    return
+}
 if ($deployables.Count -eq 0) {
-    Fail-Step "Stack stack-$slug-$environmentName lists no deployable$(if ($only) { " named $only" })."
+    Fail-Step "Stack stack-$slug-$environmentName lists no deployable named $only."
 }
 
 # A deployable project verifies right after its update step, before the stack is applied again: the health path of

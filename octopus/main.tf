@@ -41,7 +41,11 @@ locals {
   container_deployables  = { for name, d in local.deployables : name => d if try(d.hosting, "containerapp") == "containerapp" }
   appservice_deployables = { for name, d in local.deployables : name => d if try(d.hosting, "containerapp") == "appservice" }
   static_deployables     = { for name, d in local.deployables : name => d if try(d.hosting, "containerapp") == "staticwebapp" }
-  migrated_deployables   = { for name, d in local.deployables : name => d if try(d.databasePackage, "") != "" }
+  # deployables[].hosting "own": the application brings its runtime (principle 007). infra/ creates nothing for it;
+  # its release carries a package with deploy.ps1 and verify.ps1, which its project runs in every environment
+  # (scripts/invoke-application.ps1).
+  own_deployables      = { for name, d in local.deployables : name => d if try(d.hosting, "containerapp") == "own" }
+  migrated_deployables = { for name, d in local.deployables : name => d if try(d.databasePackage, "") != "" }
   # deployables[].environments: a deployable that exists in some environments only (a container deployable; the rule
   # is in scripts/test-system.ps1). It gets a lifecycle of its own with those environments, in the system's order, so
   # Octopus offers its releases nowhere else.

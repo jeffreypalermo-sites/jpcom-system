@@ -111,13 +111,14 @@ if ($system.azure.ContainsKey('appEnvironment')) {
         }
     }
     foreach ($deployable in @($system.deployables)) {
-        Test-Rule "deployable $($deployable.name) on Container Apps" (-not $deployable.ContainsKey('hosting') -or $deployable.hosting -ceq 'containerapp') "with azure.appEnvironment every deployable is a container app; '$($deployable['hosting'])' has no place in it"
+        Test-Rule "deployable $($deployable.name) on Container Apps" (-not $deployable.ContainsKey('hosting') -or $deployable.hosting -cin 'containerapp', 'own') "with azure.appEnvironment every deployable is a container app; '$($deployable['hosting'])' has no place in it"
     }
 }
 
 # Where a deployable runs: infra/main.bicep and octopus/main.tf have a module and an "Update deployable" step per
-# hosting, and a value they do not know would get neither.
-$hostings = @('containerapp', 'appservice', 'staticwebapp')
+# hosting, and a value they do not know would get neither. "own": the application brings its runtime (infra/ has
+# nothing for it; its project runs the deploy.ps1 and verify.ps1 of its release's package).
+$hostings = @('containerapp', 'appservice', 'staticwebapp', 'own')
 foreach ($deployable in @($system.deployables)) {
     if ($deployable.ContainsKey('hosting')) {
         Test-Rule "deployable $($deployable.name) hosting" ($hostings -ccontains [string] $deployable.hosting) "'$($deployable.hosting)' is not one of $($hostings -join ', ') (containerapp when left out)"

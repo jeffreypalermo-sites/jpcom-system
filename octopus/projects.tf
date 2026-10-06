@@ -481,8 +481,77 @@ resource "octopusdeploy_process_step" "deploy_staticwebapp" {
   }
 }
 
+# hosting "own": the application's own deploy.ps1 and verify.ps1, from the package its release carries (the content of
+# the application repository's deploy/ folder), run as the tier's deploy identity. Same step names as every other
+# deployable, so the lifecycle, the pin and the checks read alike.
+resource "octopusdeploy_process_step" "deploy_own" {
+  for_each = local.own_deployables
+
+  process_id     = octopusdeploy_process.deployable[each.key].id
+  name           = "Update deployable"
+  type           = "Octopus.AzurePowerShell"
+  worker_pool_id = local.worker_pool_id
+  container      = local.container
+
+  packages = {
+    app = {
+      package_id           = "${local.slug}-${each.key}"
+      feed_id              = local.built_in_feed_id
+      acquisition_location = "Server"
+      properties = {
+        Extract       = "True"
+        Purpose       = ""
+        SelectionMode = "immediate"
+      }
+    }
+  }
+
+  execution_properties = {
+    "Octopus.Action.Azure.AccountId"     = "#{Azure.Account}"
+    "Octopus.Action.RunOnServer"         = "true"
+    "Octopus.Action.Script.ScriptSource" = "Inline"
+    "Octopus.Action.Script.Syntax"       = "PowerShell"
+    "Octopus.Action.Script.ScriptBody"   = file("${path.module}/../scripts/invoke-application.ps1")
+    "OctopusUseBundledTooling"           = "False"
+  }
+}
+
+resource "octopusdeploy_process_step" "verify_own" {
+  for_each = local.own_deployables
+
+  process_id     = octopusdeploy_process.deployable[each.key].id
+  name           = "Verify deployable"
+  type           = "Octopus.AzurePowerShell"
+  worker_pool_id = local.worker_pool_id
+  container      = local.container
+
+  packages = {
+    app = {
+      package_id           = "${local.slug}-${each.key}"
+      feed_id              = local.built_in_feed_id
+      acquisition_location = "Server"
+      properties = {
+        Extract       = "True"
+        Purpose       = ""
+        SelectionMode = "immediate"
+      }
+    }
+  }
+
+  execution_properties = {
+    "Octopus.Action.Azure.AccountId"     = "#{Azure.Account}"
+    "Octopus.Action.RunOnServer"         = "true"
+    "Octopus.Action.Script.ScriptSource" = "Inline"
+    "Octopus.Action.Script.Syntax"       = "PowerShell"
+    "Octopus.Action.Script.ScriptBody"   = file("${path.module}/../scripts/invoke-application.ps1")
+    "OctopusUseBundledTooling"           = "False"
+  }
+}
+
+# Every deployable the system's infra/ creates is verified through the stack's outputs; one with hosting "own"
+# verifies itself (verify_own above).
 resource "octopusdeploy_process_step" "verify" {
-  for_each = local.deployables
+  for_each = { for name, d in local.deployables : name => d if !contains(keys(local.own_deployables), name) }
 
   process_id     = octopusdeploy_process.deployable[each.key].id
   name           = "Verify deployable"
@@ -534,10 +603,11 @@ resource "octopusdeploy_process_steps_order" "deployable" {
     contains(keys(local.container_deployables), each.key) ? [octopusdeploy_process_step.update[each.key].id] : [],
     contains(keys(local.appservice_deployables), each.key) ? [octopusdeploy_process_step.deploy_appservice[each.key].id] : [],
     contains(keys(local.static_deployables), each.key) ? [octopusdeploy_process_step.deploy_staticwebapp[each.key].id] : [],
-    [
-      octopusdeploy_process_step.verify[each.key].id,
-      octopusdeploy_process_step.revert_pin[each.key].id,
-    ],
+    contains(keys(local.own_deployables), each.key) ? [
+      octopusdeploy_process_step.deploy_own[each.key].id,
+      octopusdeploy_process_step.verify_own[each.key].id,
+    ] : [octopusdeploy_process_step.verify[each.key].id],
+    [octopusdeploy_process_step.revert_pin[each.key].id],
     contains(keys(local.tested_deployables), each.key) ? [
       octopusdeploy_process_step.open_test_database[each.key].id,
       octopusdeploy_process_step.acceptance_tests[each.key].id,
