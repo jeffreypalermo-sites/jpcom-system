@@ -172,8 +172,9 @@ function Get-DeployedPackage([string] $Environment) {
     # The version of the app package (the zip in the Octopus built-in feed) the environment's current release deploys.
     $deployment = Get-LastDeployment $deployableProject $Environment
     $release = Invoke-Octopus "/api/$space/releases/$($deployment.ReleaseId)"
-    $package = @($release.SelectedPackages | Where-Object { $_.ActionName -eq 'Update deployable' })[0]
-    @{ release = [string] $release.Version; package = [string] $package.Version }
+    # A release made before the deployable had a package (it changed to hosting "own" later) selects none.
+    $package = @($release.SelectedPackages | Where-Object { $_.ActionName -eq 'Update deployable' }) | Select-Object -First 1
+    @{ release = [string] $release.Version; package = if ($package) { [string] $package.Version } else { '' } }
 }
 function Get-DeclaredPlan([string] $Environment) {
     # The plan size system.json declares for the environment's tier: system.planSku, F1 without it, and F1 for every
@@ -244,7 +245,14 @@ $checks = [ordered] @{
     'CAP-020' = {
         if ($onAppService -or $ownRuntime) {
             # One zip per version in the built-in feed; every environment's release deploys the package of its own number.
-            $shown = foreach ($e in $environments) { if (-not (Find-LastDeployment $deployableProject $e)) { continue }; $p = Get-DeployedPackage $e; Assert-That ($p.release -eq $p.package) "$e runs release $($p.release) with package $($p.package)"; "$e $($p.package)" }
+            $shown = foreach ($e in $environments) {
+                if (-not (Find-LastDeployment $deployableProject $e)) { continue }
+                $p = Get-DeployedPackage $e
+                # An environment still on a release from before the application brought its runtime has no package yet.
+                if ($ownRuntime -and -not $p.package) { "$e $($p.release) (released before $deployable had a package)"; continue }
+                Assert-That ($p.release -eq $p.package) "$e runs release $($p.release) with package $($p.package)"
+                "$e $($p.package)"
+            }
             if (-not $shown) { Skip-Check "no successful $deployableProject deployment yet" }
             return "one package per version: $($shown -join ', ')"
         }
