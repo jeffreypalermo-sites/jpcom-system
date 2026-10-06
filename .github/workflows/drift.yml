@@ -1,0 +1,64 @@
+# Nightly drift check: what-if of main against every environment, as id-<slug>-plan (Reader). A red run means an
+# environment differs from Git; the job summary lists what. Repair by deploying the latest <slug>-system release to
+# that environment again (the deployment stack puts back what Git says). The deny settings of the stacks make most
+# manual changes impossible in the first place, so drift here usually means a change merged but not yet promoted.
+# The result is also an issue with label "drift": opened or updated while an environment differs, closed when the
+# next run is clean, so nobody has to read workflow logs to know.
+name: drift
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  issues: write
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    environment: azure-read
+    steps:
+      - uses: actions/checkout@v6.0.1
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID_PLAN }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: What-if per environment
+        id: whatif
+        continue-on-error: true
+        shell: pwsh
+        run: ./scripts/preview-environment.ps1 -FailOnChange -SummaryPath "${{ runner.temp }}/drift.md"
+
+      - name: Report drift as an issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTCOME: ${{ steps.whatif.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          report="${{ runner.temp }}/drift.md"
+          touch "$report"
+          cat "$report" >> "$GITHUB_STEP_SUMMARY"
+          gh label create drift --color B60205 --description "An environment differs from main" --force >/dev/null
+          issue=$(gh issue list --label drift --state open --json number --jq '.[0].number // empty')
+          if [ "$OUTCOME" = "success" ]; then
+            if [ -n "$issue" ]; then
+              gh issue close "$issue" --comment "No drift on $(date -u +%F) ($RUN_URL)."
+            fi
+            exit 0
+          fi
+          intro="The nightly drift check found differences between main and the environments ($RUN_URL)."
+          repair="Repair: deploy the latest system release to the environment again."
+          body=$(printf '%s\n\n%s\n\n%s\n' "$intro" "$repair" "$(cat "$report")")
+          if [ -n "$issue" ]; then
+            gh issue comment "$issue" --body "$body"
+          else
+            gh issue create --title "Drift between main and the environments" --label drift --body "$body"
+          fi
+          exit 1

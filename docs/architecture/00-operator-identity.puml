@@ -1,0 +1,43 @@
+@startuml 00-operator-identity
+!include _c4.iuml
+title jeffreypalermo.com | Phase 0: operator identity (2026-10-06)
+
+Person(setup, "Setup person", "Created and empowered the operator identity once; no login of theirs stays on the box", $tags="once")
+
+Boundary(box, "Operator machine omarchy") {
+  Container(aiops, "Linux user aiops", "Claude Code, gh, az, pwsh, Terraform, PlantUML", "Runs every phase of the demo-environment skill", $tags="new")
+  ContainerDb(creds, "systemd-creds", "user-scoped, this host only", "Octopus API key of ai-ops", $tags="secret+new")
+  Container(person, "Linux user jeffrey", "Claude Code signed in as the person", "Sessions and Remote Control; git, gh, az and Octopus as the operator identity", $tags="new")
+  ContainerDb(keyring, "Login keychain of jeffrey", "GNOME keyring", "gh token of the machine user, Azure secret, Octopus key", $tags="secret+new")
+  Container(keytimer, "operator-keychain.timer", "systemd user timer of jeffrey, daily", "sync-operator-keychain.ps1: copies the current credentials from aiops", $tags="new")
+  Container(timer, "operator-secret.timer", "systemd user timer, weekly", "update-operator-secret.ps1: renews the Azure secret at 45 days left", $tags="new")
+}
+
+Boundary(gh, "GitHub org jeffreypalermo-sites") {
+  Container(bot, "cm-ai-ops-bot", "machine user, org owner", "gh OAuth token, no expiry", $tags="new")
+  Container(kit, "demo-environment-kit", "private repository", "The skill: phases, templates, these diagram templates", $tags="new")
+}
+
+Boundary(az, "Azure tenant 40645332-2e20-4bca-882c-b2706f93ce44") {
+  Container(sp, "cm-ai-ops", "service principal (2ad8c83f-2bb4-4a2e-abe4-3a7ff2ff089b)", "Owner of Jeffrey MVP Azure subscription 7-25--7-27; owns its app registration with Graph Application.ReadWrite.OwnedBy, so it renews its own secret", $tags="new")
+}
+
+Boundary(octo, "Octopus https://clearmeasure.octopus.app") {
+  Container(aiops_octo, "ai-ops", "AI service account", "Team Octopus Managers: SpaceCreate, UserEdit, SpaceDelete", $tags="new")
+}
+
+Rel_R(aiops, bot, "gh and git", "OAuth token", $tags="new")
+Rel_R(aiops, kit, "clones, commits", $tags="new")
+Rel(aiops, sp, "az login", "client secret, @file", $tags="new")
+Rel(aiops, creds, "decrypts per script", $tags="new")
+Rel(aiops, aiops_octo, "REST", "API key", $tags="new")
+Rel(timer, sp, "addPassword, removePassword", "Microsoft Graph", $tags="new")
+Rel(keytimer, keyring, "stores", $tags="new")
+Rel(keytimer, aiops, "reads credentials", "sudo", $tags="new")
+Rel(person, keyring, "gh, az, Octopus", $tags="new")
+Rel(setup, sp, "created; Owner role (MFA)", $tags="once")
+Rel(setup, bot, "created; org owner", $tags="once")
+Rel(setup, aiops_octo, "created; API key", $tags="once")
+
+SHOW_LEGEND()
+@enduml

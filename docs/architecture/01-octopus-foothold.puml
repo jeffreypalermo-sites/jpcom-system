@@ -1,0 +1,31 @@
+@startuml 01-octopus-foothold
+!include _c4.iuml
+title jeffreypalermo.com | Phase 1: Octopus foothold (2026-10-06)
+
+Boundary(box, "Operator machine omarchy") {
+  Container(aiops, "Linux user aiops", "Claude Code, gh, az, pwsh", "Ran new-octopus-foothold.ps1")
+}
+
+Boundary(octo, "Octopus https://clearmeasure.octopus.app") {
+  Container(aiops_octo, "ai-ops", "AI service account", "Octopus Managers")
+  Boundary(space, "Space JeffreyPalermo - Sites (Spaces-375, slug jeffreypalermo-sites)") {
+    Container(sa, "jpcom-github", "service account Users-822, Space Manager", "No password, no API key: GitHub signs in with OIDC (ExternalId 2c242934-aa00-4f08-9446-b700214f2a93)", $tags="new")
+    Container(oidc_sys, "OIDC identity", "issuer token.actions.githubusercontent.com", "repo:jeffreypalermo-sites/jpcom-system:environment:octopus", $tags="new")
+    Container(oidc_app, "OIDC identity", "issuer token.actions.githubusercontent.com", "repo:jeffreypalermo-sites/jeffreypalermo.com:environment:release", $tags="new")
+  }
+}
+
+Boundary(gh, "GitHub org jeffreypalermo-sites") {
+  Container(sysrepo, "jpcom-system", "environment octopus", "Jobs octopus-apply and system-release", $tags="planned")
+  Container(apprepo, "jeffreypalermo.com", "environment release", "Workflow release.yml", $tags="planned")
+}
+
+Rel(aiops, aiops_octo, "REST", "API key")
+Rel(aiops_octo, space, "created; Space Manager", $tags="new")
+Rel(oidc_sys, sa, "signs in as", $tags="new")
+Rel(oidc_app, sa, "signs in as", $tags="new")
+Rel(sysrepo, oidc_sys, "OIDC token", $tags="planned")
+Rel(apprepo, oidc_app, "OIDC token", $tags="planned")
+
+SHOW_LEGEND()
+@enduml

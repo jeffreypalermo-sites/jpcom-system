@@ -1,0 +1,18 @@
+' Shared look of the transitional architecture diagrams (docs/architecture/). Each phase's diagram shows the whole
+' system as implemented after that phase: elements the phase added carry the tag "new", elements that exist only as a
+' name another element already trusts (a federated subject, an OIDC identity) carry the tag "planned".
+!include <C4/C4_Container>
+
+LAYOUT_LEFT_RIGHT()
+HIDE_STEREOTYPE()
+SHOW_PERSON_OUTLINE()
+skinparam wrapWidth 220
+skinparam maxMessageSize 160
+skinparam defaultFontName "DejaVu Sans"
+
+AddElementTag("new", $borderColor="#2e7d32", $borderThickness="3", $legendText="added in this phase")
+AddElementTag("planned", $bgColor="#ffffff", $fontColor="#555555", $borderColor="#888888", $borderStyle=DashedLine(), $legendText="planned: named and trusted, not created yet")
+AddElementTag("secret", $bgColor="#fff3e0", $fontColor="#4e342e", $borderColor="#ef6c00", $legendText="credential store")
+AddRelTag("new", $textColor="#2e7d32", $lineColor="#2e7d32", $lineThickness="2", $legendText="added in this phase")
+AddRelTag("planned", $textColor="#777777", $lineColor="#999999", $lineStyle=DashedLine(), $legendText="planned trust or flow")
+AddRelTag("once", $textColor="#6a1b9a", $lineColor="#6a1b9a", $lineStyle=DottedLine(), $legendText="one-time setup by a person")

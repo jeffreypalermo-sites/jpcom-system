@@ -1,0 +1,87 @@
+# Nightly capability checks: scripts/test-capabilities.ps1 proves, read-only, every capability this system claims
+# (one check per CAP-NNN of the demo-environment kit's docs/capabilities.md): rulesets, pins, Octopus processes,
+# deployment stacks, image locks, roles, runbook results, clean deployment logs. It signs in as the system's own
+# identities: Azure as id-<slug>-plan (Reader), Octopus as the system's service account. GitHub reads go through
+# OCTOPUS_GITHUB_TOKEN because the app repository's rulesets are outside this repository's token; a read-only GitHub
+# App replaces it with CAP-050. The result is an issue with label "capability": opened or updated while a check fails,
+# closed when the next run passes. Every system build ends with the same checks (system.yml calls this workflow).
+name: capabilities
+
+on:
+  schedule:
+    - cron: "47 6 * * *"
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+  id-token: write
+  issues: write
+
+jobs:
+  capabilities:
+    runs-on: ubuntu-latest
+    environment: capabilities
+    steps:
+      - uses: actions/checkout@v6.0.1
+
+      # The checks compare Git, Octopus and Azure at rest, so they first wait until no Octopus task runs. They sign in to
+      # Azure only after that: a GitHub OIDC sign-in cannot fetch new tokens (such as the registry's) an hour later.
+      - name: Sign in to Octopus to wait
+        uses: OctopusDeploy/login@v2
+        with:
+          server: ${{ vars.OCTOPUS_URL }}
+          service_account_id: ${{ vars.OCTOPUS_SERVICE_ACCOUNT_ID }}
+
+      - name: Wait until Octopus is quiet
+        shell: pwsh
+        run: ./scripts/test-capabilities.ps1 -WaitOnly -WaitMinutes 50
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID_PLAN }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Sign in to Octopus
+        uses: OctopusDeploy/login@v2
+        with:
+          server: ${{ vars.OCTOPUS_URL }}
+          service_account_id: ${{ vars.OCTOPUS_SERVICE_ACCOUNT_ID }}
+
+      - name: Prove every capability
+        id: checks
+        continue-on-error: true
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.OCTOPUS_GITHUB_TOKEN }}
+        run: |
+          ./scripts/test-capabilities.ps1 -WaitMinutes 40 *>&1 | Tee-Object -FilePath "${{ runner.temp }}/capabilities.txt"
+          exit $LASTEXITCODE
+
+      - name: Report failed capabilities as an issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTCOME: ${{ steps.checks.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          report="${{ runner.temp }}/capabilities.txt"
+          touch "$report"
+          { echo '```'; cat "$report"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          gh label create capability --color B60205 --description "A capability of the system is not proven" --force >/dev/null
+          issue=$(gh issue list --label capability --state open --json number --jq '.[0].number // empty')
+          if [ "$OUTCOME" = "success" ]; then
+            if [ -n "$issue" ]; then
+              gh issue close "$issue" --comment "All capabilities proven on $(date -u +%F) ($RUN_URL)."
+            fi
+            exit 0
+          fi
+          intro="The nightly capability checks failed ($RUN_URL). Each FAIL line names the capability (CAP-NNN in the kit's docs/capabilities.md) and what was found."
+          body=$(printf '%s\n\n```\n%s\n```\n' "$intro" "$(grep -E '^(FAIL|[0-9]+ of)' "$report" || cat "$report")")
+          if [ -n "$issue" ]; then
+            gh issue comment "$issue" --body "$body"
+          else
+            gh issue create --title "Capabilities not proven" --label capability --body "$body"
+          fi
+          exit 1

@@ -1,0 +1,136 @@
+# The system pipeline. Every merge to main (except a pin commit, which changes only environments/*/versions.json, and a
+# documentation change under docs/ or in Markdown):
+#   1. octopus-apply   configures Octopus from octopus/ and system.json (environments, lifecycle, accounts, projects)
+#   2. system-release  packages this commit as <slug>-system <version> and creates the release of <slug>-system;
+#                      the lifecycle deploys it to the first environment, which applies infra/ there.
+# On the very first push this run is what creates the Octopus projects and then the first Azure environment.
+# Credentials: GitHub OIDC only. Azure as id-<slug>-octopus-config (Terraform state), Octopus as the system's service
+# account (OctopusDeploy/login). The one stored secret is OCTOPUS_GITHUB_TOKEN, handed to Octopus for the pin step.
+name: system
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "environments/*/versions.json"
+      - "**/*.md"
+      - "docs/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: system
+  cancel-in-progress: false
+
+env:
+  ARM_USE_OIDC: "true"
+  ARM_USE_AZUREAD: "true"
+  ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+  ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID_OCTOPUS_CONFIG }}
+  # The Octopus actions (push-package, create-release) look the space up by name, not by ID.
+  OCTOPUS_SPACE: ${{ vars.OCTOPUS_SPACE_NAME }}
+
+jobs:
+  octopus-apply:
+    runs-on: ubuntu-latest
+    environment: octopus
+    steps:
+      - uses: actions/checkout@v6.0.1
+
+      - name: Sign in to Octopus
+        uses: OctopusDeploy/login@v2
+        with:
+          server: ${{ vars.OCTOPUS_URL }}
+          service_account_id: ${{ vars.OCTOPUS_SERVICE_ACCOUNT_ID }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.16.4"
+          terraform_wrapper: false
+
+      - name: Apply octopus/
+        working-directory: octopus
+        shell: pwsh
+        env:
+          TF_VAR_github_token: ${{ secrets.OCTOPUS_GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $env:TF_VAR_octopus_access_token = $env:OCTOPUS_ACCESS_TOKEN
+          $state = (Get-Content -LiteralPath ../system.json -Raw | ConvertFrom-Json).azure.terraformState
+          terraform init -input=false `
+            "-backend-config=resource_group_name=$($state.resourceGroup)" `
+            "-backend-config=storage_account_name=$($state.storageAccount)" `
+            "-backend-config=container_name=$($state.container)" `
+            '-backend-config=key=octopus.tfstate' `
+            '-backend-config=use_azuread_auth=true'
+          terraform apply -input=false -auto-approve -parallelism=1
+
+      # One task per environment means one queue for Octopus: without this, a newer task cancels a queued (or running)
+      # one of another project as "superseded".
+      - name: Keep queued tasks
+        shell: pwsh
+        run: ./scripts/keep-queued-tasks.ps1
+
+      # Scheduled runbooks run their published snapshot, which Terraform does not create.
+      - name: Publish runbooks
+        shell: pwsh
+        run: ./scripts/publish-runbooks.ps1 -Name "run ${{ github.run_number }}.${{ github.run_attempt }}"
+
+  system-release:
+    needs: octopus-apply
+    runs-on: ubuntu-latest
+    environment: octopus
+    steps:
+      - uses: actions/checkout@v6.0.1
+
+      - name: Package this commit
+        id: package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $slug = (Get-Content -LiteralPath system.json -Raw | ConvertFrom-Json).system.slug
+          $version = "1.0.${{ github.run_number }}"
+          $file = "$slug-system.$version.zip"
+          git archive --format zip --output $file HEAD
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "file=$file" >> $env:GITHUB_OUTPUT
+          "project=$slug-system" >> $env:GITHUB_OUTPUT
+
+      - name: Sign in to Octopus
+        uses: OctopusDeploy/login@v2
+        with:
+          server: ${{ vars.OCTOPUS_URL }}
+          service_account_id: ${{ vars.OCTOPUS_SERVICE_ACCOUNT_ID }}
+
+      - name: Push the package
+        uses: OctopusDeploy/push-package-action@v3
+        with:
+          packages: ${{ steps.package.outputs.file }}
+          overwrite_mode: IgnoreIfExists
+
+      - name: Create the release
+        uses: OctopusDeploy/create-release-action@v3
+        with:
+          project: ${{ steps.package.outputs.project }}
+          release_number: ${{ steps.package.outputs.version }}
+          package_version: ${{ steps.package.outputs.version }}
+          ignore_existing: true
+          release_notes: "Commit ${{ github.sha }}: ${{ github.event.head_commit.message || 'manual run' }}"
+
+  # Every system build ends by proving every capability of the system (scripts/test-capabilities.ps1, the same checks
+  # as the nightly run). The checks wait until Octopus is quiet, so they see the new release applied to the first
+  # environment and any app deployment it queued behind.
+  capabilities:
+    needs: system-release
+    permissions:
+      contents: read
+      id-token: write
+      issues: write
+    uses: ./.github/workflows/capabilities.yml
+    secrets: inherit

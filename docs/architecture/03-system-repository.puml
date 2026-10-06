@@ -1,0 +1,40 @@
+@startuml 03-system-repository
+!include _c4.iuml
+title jeffreypalermo.com | Phase 3: system repository pushed (2026-10-06)
+
+Boundary(box, "Operator machine omarchy") {
+  Container(aiops, "Linux user aiops", "gh as cm-ai-ops-bot", "Ran new-system-repository.ps1")
+}
+
+Boundary(gh, "GitHub org jeffreypalermo-sites") {
+  Container(sysrepo, "jpcom-system", "public repository, main protected by ruleset", "system.json, environments/, infra/, octopus/, scripts/, docs/architecture/", $tags="new")
+  Container(wf_system, "Workflow system", "GitHub Actions, every merge to main", "octopus-apply, then system-release", $tags="new")
+  Container(wf_checks, "Workflows env-checks, drift", "GitHub Actions", "Pull request checks and what-if preview; nightly drift", $tags="new")
+  Container(board, "Project board", "GitHub Project", "Work items of the demo", $tags="new")
+}
+
+Boundary(octo, "Octopus space JeffreyPalermo - Sites") {
+  Container(sa, "jpcom-github", "service account", "OIDC identity for environment octopus")
+  Container(octo_cfg, "Environments, lifecycle, accounts, projects", "Terraform octopus/, from system.json", "Created by the first octopus-apply", $tags="planned")
+  Container(rel_sys, "jpcom-system release 1.0.<run>", "package jpcom-system", "Deploys to tdd automatically", $tags="planned")
+}
+
+Boundary(sub, "Subscription Jeffrey MVP Azure subscription 7-25--7-27") {
+  ContainerDb(tfstate, "stjpcomtf7i6mdr", "Storage account", "octopus.tfstate")
+  Container(id_cfg, "id-jpcom-octopus-config", "managed identity")
+  Container(id_dn, "id-jpcom-deploy-nonprod", "managed identity", "Owner of rg-jpcom-nonprod")
+  Container(stack, "stack-jpcom-tdd", "deployment stack, deny settings", "Key Vault, SQL free offer, Container Apps, placeholder app", $tags="planned")
+}
+
+Rel(aiops, sysrepo, "creates, pushes main; variables, environments, secret OCTOPUS_GITHUB_TOKEN", $tags="new")
+Rel(sysrepo, wf_system, "push to main", $tags="new")
+Rel(wf_system, sa, "OctopusDeploy/login", "OIDC", $tags="new")
+Rel(wf_system, id_cfg, "azure/login", "OIDC", $tags="new")
+Rel(id_cfg, tfstate, "state")
+Rel(wf_system, octo_cfg, "terraform apply", $tags="planned")
+Rel(wf_system, rel_sys, "push package, create release", $tags="planned")
+Rel(rel_sys, id_dn, "Apply environment", "Octopus OIDC", $tags="planned")
+Rel(id_dn, stack, "az stack group create", $tags="planned")
+
+SHOW_LEGEND()
+@enduml

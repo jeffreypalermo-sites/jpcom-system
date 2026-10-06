@@ -1,0 +1,83 @@
+# Checks of every pull request to main. Job env-checks is the required status check of the main ruleset: it needs no
+# credential, so it runs for every pull request. Job preview shows what each environment would change (what-if, as
+# id-<slug>-plan with Reader); it runs only for branches of this repository, because a fork's pull request gets no
+# OIDC token, and it never blocks a merge.
+name: env-checks
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  env-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.1
+        with:
+          fetch-depth: 0
+
+      # No secret in the repository (capability CAP-055); the command-line tool, not gitleaks-action, which needs a
+      # license for organization repositories. It scans the history of the checked-out commit (--log-opts=HEAD), not
+      # every branch, so a finding on one branch fails that branch only.
+      - name: Secret scan
+        env:
+          GITLEAKS_VERSION: "8.30.1"
+        run: |
+          set -euo pipefail
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" | tar -xz gitleaks
+          ./gitleaks git . --redact --no-banner --exit-code 1 --log-opts="HEAD"
+          rm gitleaks
+
+      - name: system.json and environment folders
+        shell: pwsh
+        run: ./scripts/test-system.ps1
+
+      - name: Bicep build
+        # Warnings fail like errors (no broken windows): Bicep writes its diagnostics to stderr with exit code 0. The
+        # setting keeps az from reporting its own config change when it installs Bicep.
+        env:
+          AZURE_BICEP_USE_BINARY_FROM_PATH: "false"
+        run: |
+          set -euo pipefail
+          az bicep install
+          for file in infra/main.bicep bootstrap/seed.bicep; do
+            diagnostics=$(az bicep build --file "$file" --stdout 2>&1 >/dev/null | grep -E ': (Warning|Error) ' || true)
+            if [ -n "$diagnostics" ]; then echo "$diagnostics"; exit 1; fi
+          done
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.16.4"
+          terraform_wrapper: false
+
+      - name: Terraform format and validate
+        working-directory: octopus
+        run: |
+          terraform fmt -check -recursive
+          terraform init -backend=false -input=false
+          validation=$(terraform validate -no-color 2>&1); echo "$validation"
+          if echo "$validation" | grep -q '^Warning:'; then exit 1; fi
+
+  preview:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    environment: azure-read
+    continue-on-error: true
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6.0.1
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID_PLAN }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: What-if per environment
+        shell: pwsh
+        run: ./scripts/preview-environment.ps1

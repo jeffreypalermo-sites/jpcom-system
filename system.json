@@ -1,0 +1,114 @@
+{
+  "system": {
+    "slug": "jpcom",
+    "name": "jeffreypalermo.com",
+    "location": "eastus2",
+    "githubOrg": "jeffreypalermo-sites",
+    "repository": "jpcom-system"
+  },
+  "azure": {
+    "tenantId": "40645332-2e20-4bca-882c-b2706f93ce44",
+    "subscriptionId": "4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69",
+    "resourceGroups": {
+      "apps": "rg-jpcom-apps",
+      "nonprod": "rg-jpcom-nonprod",
+      "prod": "rg-jpcom-prod"
+    },
+    "registry": {
+      "loginServer": "acrjpcom7i6mdr.azurecr.io",
+      "name": "acrjpcom7i6mdr"
+    },
+    "terraformState": {
+      "container": "tfstate",
+      "resourceGroup": "rg-jpcom-nonprod",
+      "storageAccount": "stjpcomtf7i6mdr"
+    },
+    "identities": {
+      "acrPush": {
+        "clientId": "8dcbf291-9b4c-4f78-a79d-1ebb7a97853a",
+        "name": "id-jpcom-acr-push",
+        "principalId": "58c11d76-23f8-440f-a2f7-7aaf6d9bd221"
+      },
+      "apps": [
+        {
+          "clientId": "ff7c2a55-8bd4-46c4-893e-583d049aa71e",
+          "environment": "tdd",
+          "name": "id-jpcom-tdd-app",
+          "principalId": "3a77d6dd-53ad-41c8-9927-85d1e2abf5e3",
+          "resourceId": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-nonprod/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-jpcom-tdd-app"
+        },
+        {
+          "clientId": "1411c7c8-27e8-4194-8f8c-92a3ecbabd92",
+          "environment": "uat",
+          "name": "id-jpcom-uat-app",
+          "principalId": "41de1d3d-c5c1-49b0-80d6-85ffa1b83596",
+          "resourceId": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-nonprod/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-jpcom-uat-app"
+        },
+        {
+          "clientId": "315a49b6-8487-4871-bf08-916f12a81c7e",
+          "environment": "prod",
+          "name": "id-jpcom-prod-app",
+          "principalId": "7122647b-e653-4ace-aa87-17cb37c71950",
+          "resourceId": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-prod/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-jpcom-prod-app"
+        }
+      ],
+      "deploy": {
+        "nonprod": {
+          "clientId": "830fe241-4e14-489a-81f6-847574ff08a4",
+          "name": "id-jpcom-deploy-nonprod",
+          "principalId": "992c589f-4ff2-4c5e-8fe5-b09a9be4a82a"
+        },
+        "prod": {
+          "clientId": "bee62a7e-7d3e-4f65-92da-82383c4211cd",
+          "name": "id-jpcom-deploy-prod",
+          "principalId": "115b751f-0236-402a-8425-e4a9768f68b5"
+        }
+      },
+      "octopusConfig": {
+        "clientId": "0ea71b4a-c475-44c0-ae1a-d2fe57d2d940",
+        "name": "id-jpcom-octopus-config",
+        "principalId": "406d849a-675c-446e-80d0-e2f9b7803e29"
+      },
+      "plan": {
+        "clientId": "b727eab3-93ab-478d-ae4c-9ada8f8d4436",
+        "name": "id-jpcom-plan",
+        "principalId": "ea43e887-ed93-4e88-b14a-3520fbd68305"
+      }
+    },
+    "appEnvironment": {
+      "defaultDomain": "salmonbush-668fd7c2.eastus2.azurecontainerapps.io",
+      "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-apps/providers/Microsoft.App/managedEnvironments/cae-jpcom",
+      "location": "eastus2",
+      "mode": "express",
+      "name": "cae-jpcom",
+      "resourceGroup": "rg-jpcom-apps",
+      "staticIp": ""
+    }
+  },
+  "octopus": {
+    "url": "https://clearmeasure.octopus.app",
+    "spaceId": "Spaces-375",
+    "spaceSlug": "jeffreypalermo-sites",
+    "serviceAccountId": "2c242934-aa00-4f08-9446-b700214f2a93",
+    "approvers": [],
+    "operator": "ai-ops"
+  },
+  "deployables": [
+    {
+      "name": "web",
+      "repository": "jeffreypalermo.com",
+      "port": 8080,
+      "healthPath": "/_health/ready",
+      "database": false
+    }
+  ],
+  "environments": [
+    {
+      "name": "tdd",
+      "tier": "nonprod",
+      "capabilities": [
+        "baseline"
+      ]
+    }
+  ]
+}

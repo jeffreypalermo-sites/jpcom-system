@@ -1,0 +1,44 @@
+@startuml 02-azure-seed
+!include _c4.iuml
+title jeffreypalermo.com | Phase 2: Azure seed (2026-10-06)
+
+Boundary(box, "Operator machine omarchy") {
+  Container(aiops, "Linux user aiops", "az as cm-ai-ops", "Ran new-demo-seed.ps1: seed.bicep at subscription scope")
+}
+
+Boundary(sub, "Subscription Jeffrey MVP Azure subscription 7-25--7-27 (eastus2)") {
+  Boundary(rgn, "rg-jpcom-nonprod") {
+    ContainerDb(acr, "acrjpcom7i6mdr", "Container Registry, Basic", "Images jpcom/web:<version>", $tags="new")
+    ContainerDb(tfstate, "stjpcomtf7i6mdr", "Storage account", "Terraform state of octopus/ (container tfstate)", $tags="new")
+    Container(id_plan, "id-jpcom-plan", "managed identity", "Reader on both groups: what-if previews and drift", $tags="new")
+    Container(id_cfg, "id-jpcom-octopus-config", "managed identity", "Storage Blob Data Contributor on the state account", $tags="new")
+    Container(id_push, "id-jpcom-acr-push", "managed identity", "AcrPush on the registry", $tags="new")
+    Container(id_dn, "id-jpcom-deploy-nonprod", "managed identity", "Owner of rg-jpcom-nonprod: applies the stacks of tdd, uat", $tags="new")
+    Container(id_apps_n, "Runtime identities", "managed identities", "id-jpcom-tdd-app, id-jpcom-uat-app: AcrPull", $tags="new")
+  }
+  Boundary(rgp, "rg-jpcom-prod") {
+    Container(id_dp, "id-jpcom-deploy-prod", "managed identity", "Owner of rg-jpcom-prod: applies the stacks of prod", $tags="new")
+    Container(id_apps_p, "Runtime identities", "managed identities", "id-jpcom-prod-app: AcrPull", $tags="new")
+  }
+}
+
+Boundary(gh, "GitHub org jeffreypalermo-sites") {
+  Container(sysrepo, "jpcom-system", "environments azure-read, octopus", $tags="planned")
+  Container(apprepo, "jeffreypalermo.com", "environment release", $tags="planned")
+}
+
+Boundary(octo, "Octopus space JeffreyPalermo - Sites") {
+  Container(projects, "Projects jpcom-system, jpcom-web", "deployments per environment", "OIDC subjects space:jeffreypalermo-sites:project:<project>:environment:<env>", $tags="planned")
+}
+
+Rel(aiops, sub, "deployment seed-jpcom", "Owner", $tags="new")
+Rel(sysrepo, id_plan, "federated: environment azure-read", $tags="planned")
+Rel(sysrepo, id_cfg, "federated: environment octopus", $tags="planned")
+Rel(apprepo, id_push, "federated: environment release", $tags="planned")
+Rel(projects, id_dn, "federated: nonprod environments", $tags="planned")
+Rel(projects, id_dp, "federated: prod environments", $tags="planned")
+Rel(id_cfg, tfstate, "state", $tags="new")
+Rel(id_push, acr, "push", $tags="new")
+
+SHOW_LEGEND()
+@enduml

@@ -1,0 +1,7 @@
+# Terraform working files of octopus/
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+# Packages built by the system workflow
+*.zip
