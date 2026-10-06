@@ -273,7 +273,7 @@ $parameters | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $parametersFil
 # old one. A deployable is available when any of its apps answers 200. Before its first 200 (an app waking from zero,
 # a new environment) nothing counts; after it, two checks in a row (about 6 seconds) without a 200 are downtime.
 function Start-AvailabilityProbe {
-    param([Parameter(Mandatory)] [string] $Group, [Parameter(Mandatory)] [string] $Environment, [hashtable] $Outputs, [string] $Only = '')
+    param([Parameter(Mandatory)] [string] $Group, [Parameter(Mandatory)] [string] $Environment, [hashtable] $Outputs, [string] $Only = '', [string[]] $Ignore = @())
     $paths = @{}
     $static = @{}
     if ($Outputs -and $Outputs.ContainsKey('deployables')) {
@@ -287,6 +287,7 @@ function Start-AvailabilityProbe {
     if ($Only) { foreach ($name in @($static.Keys)) { if ($name -ne $Only) { $static.Remove($name) } } }
     $probeGroup = $Group
     $probeEnvironment = $Environment
+    $probeIgnore = @($Ignore)
     $job = Start-ThreadJob -ScriptBlock {
         # $using: in a thread job passes the objects themselves: $probe is the shared, synchronized table.
         $probe = $using:probe
@@ -295,6 +296,7 @@ function Start-AvailabilityProbe {
         $paths = $using:paths
         $static = $using:static
         $only = $using:Only
+        $ignore = $using:probeIgnore
         $targets = @{}
         $listed = [datetime]::MinValue
         $tick = 0
@@ -304,7 +306,7 @@ function Start-AvailabilityProbe {
                     $json = az containerapp list --resource-group $group --query "[?tags.environment=='$environment'].{name: name, deployable: tags.deployable, fqdn: properties.configuration.ingress.fqdn}" --output json 2>$null
                     if ($LASTEXITCODE -eq 0 -and $json) {
                         foreach ($app in @($json | ConvertFrom-Json)) {
-                            if ($app.fqdn -and $app.deployable -and (-not $only -or $app.deployable -eq $only)) { $targets["https://$($app.fqdn)"] = @{ Deployable = [string] $app.deployable; Name = [string] $app.name } }
+                            if ($app.fqdn -and $app.deployable -and $ignore -notcontains $app.deployable -and (-not $only -or $app.deployable -eq $only)) { $targets["https://$($app.fqdn)"] = @{ Deployable = [string] $app.deployable; Name = [string] $app.name } }
                         }
                     }
                     foreach ($name in $static.Keys) { $targets[$static[$name]] = @{ Deployable = $name; Name = $static[$name] } }
@@ -372,7 +374,12 @@ function Stop-AvailabilityProbe {
     return $downtimes
 }
 
-$probe = Start-AvailabilityProbe -Group $resourceGroup -Environment $environmentName -Outputs $outputs
+# A deployable that brings its own runtime (hosting "own") is not this step's to keep available: its own project
+# deploys and verifies it. That matters on the one apply after a deployable changes to "own": the stack removes the
+# app it created, which the application's next deployment creates again, and that is the change, not downtime.
+$ownRuntime = @($system.deployables | Where-Object { $_['hosting'] -eq 'own' } | ForEach-Object { [string] $_.name })
+if ($ownRuntime.Count -gt 0) { Write-Host "Not watched here (they bring their own runtime): $($ownRuntime -join ', ')" }
+$probe = Start-AvailabilityProbe -Group $resourceGroup -Environment $environmentName -Outputs $outputs -Ignore $ownRuntime
 function Invoke-StackApply {
     # Applies a template as a deployment stack with deny settings; returns the stack as JSON.
     # New role assignments and identities take a few minutes to propagate, and Azure sometimes reports
