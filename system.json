@@ -109,6 +109,13 @@
       "capabilities": [
         "baseline"
       ]
+    },
+    {
+      "name": "uat",
+      "tier": "nonprod",
+      "capabilities": [
+        "baseline"
+      ]
     }
   ]
 }
