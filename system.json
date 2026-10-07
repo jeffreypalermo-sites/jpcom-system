@@ -99,7 +99,8 @@
       "repository": "jeffreypalermo.com",
       "hosting": "own",
       "port": 8080,
-      "healthPath": "/_health/ready"
+      "healthPath": "/_health/ready",
+      "buildPath": "/_build"
     },
     {
       "name": "dashboard",
