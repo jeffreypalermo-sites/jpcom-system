@@ -548,6 +548,43 @@ resource "octopusdeploy_process_step" "verify_own" {
   }
 }
 
+# Runs only when an earlier step failed, before "Revert pin": the application's deploy.ps1 again, with the version the
+# environment ran before. For any other deployable the next apply of the stack puts the pinned version back; nothing
+# of the system's applies an application's own runtime, so without this step a failed verification would leave the
+# environment on the release that failed while versions.json names the one before (principle 002).
+resource "octopusdeploy_process_step" "revert_own" {
+  for_each = local.own_deployables
+
+  process_id     = octopusdeploy_process.deployable[each.key].id
+  name           = "Revert deployable"
+  type           = "Octopus.AzurePowerShell"
+  condition      = "Failure"
+  worker_pool_id = local.worker_pool_id
+  container      = local.container
+
+  packages = {
+    app = {
+      package_id           = "${local.slug}-${each.key}"
+      feed_id              = local.built_in_feed_id
+      acquisition_location = "Server"
+      properties = {
+        Extract       = "True"
+        Purpose       = ""
+        SelectionMode = "immediate"
+      }
+    }
+  }
+
+  execution_properties = {
+    "Octopus.Action.Azure.AccountId"     = "#{Azure.Account}"
+    "Octopus.Action.RunOnServer"         = "true"
+    "Octopus.Action.Script.ScriptSource" = "Inline"
+    "Octopus.Action.Script.Syntax"       = "PowerShell"
+    "Octopus.Action.Script.ScriptBody"   = file("${path.module}/../scripts/invoke-application.ps1")
+    "OctopusUseBundledTooling"           = "False"
+  }
+}
+
 # Every deployable the system's infra/ creates is verified through the stack's outputs; one with hosting "own"
 # verifies itself (verify_own above).
 resource "octopusdeploy_process_step" "verify" {
@@ -606,6 +643,7 @@ resource "octopusdeploy_process_steps_order" "deployable" {
     contains(keys(local.own_deployables), each.key) ? [
       octopusdeploy_process_step.deploy_own[each.key].id,
       octopusdeploy_process_step.verify_own[each.key].id,
+      octopusdeploy_process_step.revert_own[each.key].id,
     ] : [octopusdeploy_process_step.verify[each.key].id],
     [octopusdeploy_process_step.revert_pin[each.key].id],
     contains(keys(local.tested_deployables), each.key) ? [
