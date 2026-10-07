@@ -6,10 +6,15 @@
     Runs the application's own deploy.ps1 or verify.ps1 for one environment.
 
 .DESCRIPTION
-    Steps "Update deployable" and "Verify deployable" of an Octopus project <slug>-<deployable> whose deployable brings
-    its own runtime (system.json hosting "own", principle 007); octopus/projects.tf inlines this file for both. The
-    system's infra/ creates nothing for such a deployable: what it runs on, and how a version gets there, is the
-    application's.
+    Steps "Update deployable", "Verify deployable" and "Revert deployable" of an Octopus project <slug>-<deployable>
+    whose deployable brings its own runtime (system.json hosting "own", principle 007); octopus/projects.tf inlines
+    this file for all three. The system's infra/ creates nothing for such a deployable: what it runs on, and how a
+    version gets there, is the application's.
+
+    "Revert deployable" runs only after a failed step: deploy.ps1 again, with the version the environment ran before
+    ("Pin version" recorded it), so that what runs is what versions.json names once "Revert pin" has put it back
+    (principle 002). The first deployment to an environment has no version before it: there is nothing to go back to,
+    and the step says so.
 
     The contract. The package reference "app" is <slug>-<deployable>.<version>.zip from the Octopus built-in feed,
     which the application's release workflow made from the content of its deploy/ folder. At its root:
@@ -45,8 +50,22 @@ $slug = [string] $OctopusParameters['System.Slug']
 $deployable = [string] $OctopusParameters['Deployable.Name']
 $version = [string] $OctopusParameters['Octopus.Release.Number']
 $package = [string] $OctopusParameters['Octopus.Action.Package[app].ExtractedPath']
-$verifying = [string] $OctopusParameters['Octopus.Step.Name'] -eq 'Verify deployable'
+$step = [string] $OctopusParameters['Octopus.Step.Name']
+$verifying = $step -eq 'Verify deployable'
 $entry = if ($verifying) { 'verify.ps1' } else { 'deploy.ps1' }
+if ($step -eq 'Revert deployable') {
+    $previous = [string] $OctopusParameters['Octopus.Action[Pin version].Output.PreviousVersion']
+    if ([string] $OctopusParameters['Octopus.Action[Pin version].Output.Pinned'] -ne 'True') {
+        Write-Host "$deployable $version was not pinned in ${environmentName}: nothing was deployed, nothing to revert."
+        return
+    }
+    if (-not $previous) {
+        Write-Host "$environmentName ran no version of $deployable before ${version}: there is none to go back to."
+        return
+    }
+    Write-Host "Going back to $deployable $previous in $environmentName, with the deploy.ps1 of $version."
+    $version = $previous
+}
 
 $script = Join-Path $package $entry
 if (-not (Test-Path -LiteralPath $script)) {
