@@ -1,0 +1,22 @@
+{
+  "web": {
+    "frontDoor": "https://jpcom-uat-duaxfxcuh2d4bsgb.z02.azurefd.net",
+    "healthPath": "/_health/ready",
+    "alivePath": "/_health/live",
+    "versionPath": "/_version",
+    "nodes": [
+      {
+        "name": "ca-jpcom-uat-web-eus2",
+        "region": "eastus2",
+        "role": "primary",
+        "url": "https://ca-jpcom-uat-web-eus2.icyhill-a16863b8.eastus2.azurecontainerapps.io"
+      },
+      {
+        "name": "ca-jpcom-uat-web-gwc",
+        "region": "germanywestcentral",
+        "role": "primary",
+        "url": "https://ca-jpcom-uat-web-gwc.grayhill-5fff05d0.germanywestcentral.azurecontainerapps.io"
+      }
+    ]
+  }
+}
