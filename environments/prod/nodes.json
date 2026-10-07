@@ -1,0 +1,76 @@
+{
+  "web": {
+    "frontDoor": "https://jpcom-prod-d8e7htexeqewe0hr.z02.azurefd.net",
+    "healthPath": "/_health/ready",
+    "alivePath": "/_health/live",
+    "versionPath": "/_version",
+    "nodes": [
+      {
+        "name": "ca-jpcom-prod-web-eus2",
+        "region": "eastus2",
+        "role": "primary",
+        "url": "https://ca-jpcom-prod-web-eus2.jollyground-b807abb5.eastus2.azurecontainerapps.io"
+      },
+      {
+        "name": "ca-jpcom-prod-web-wus2",
+        "region": "westus2",
+        "role": "primary",
+        "url": "https://ca-jpcom-prod-web-wus2.bluedune-8f988bcf.westus2.azurecontainerapps.io"
+      },
+      {
+        "name": "ca-jpcom-prod-web-brs",
+        "region": "brazilsouth",
+        "role": "primary",
+        "url": "https://ca-jpcom-prod-web-brs.nicestone-75ca80d7.brazilsouth.azurecontainerapps.io"
+      },
+      {
+        "name": "ca-jpcom-prod-web-gwc",
+        "region": "germanywestcentral",
+        "role": "primary",
+        "url": "https://ca-jpcom-prod-web-gwc.ashyground-80945c71.germanywestcentral.azurecontainerapps.io"
+      },
+      {
+        "name": "ca-jpcom-prod-web-uks",
+        "region": "uksouth",
+        "role": "primary",
+        "url": "https://ca-jpcom-prod-web-uks.ashyocean-c2ae15ff.uksouth.azurecontainerapps.io"
+      },
+      {
+        "name": "ca-jpcom-prod-web-zan",
+        "region": "southafricanorth",
+        "role": "primary",
+        "url": "https://ca-jpcom-prod-web-zan.livelysmoke-e723e271.southafricanorth.azurecontainerapps.io"
+      },
+      {
+        "name": "ca-jpcom-prod-web-uan",
+        "region": "uaenorth",
+        "role": "primary",
+        "url": "https://ca-jpcom-prod-web-uan.victoriouswave-7aedfdef.uaenorth.azurecontainerapps.io"
+      },
+      {
+        "name": "ca-jpcom-prod-web-inc",
+        "region": "centralindia",
+        "role": "primary",
+        "url": "https://ca-jpcom-prod-web-inc.victorioustree-c2da920a.centralindia.azurecontainerapps.io"
+      },
+      {
+        "name": "ca-jpcom-prod-web-sea",
+        "region": "southeastasia",
+        "role": "primary",
+        "url": "https://ca-jpcom-prod-web-sea.ashyrock-7a70726a.southeastasia.azurecontainerapps.io"
+      },
+      {
+        "name": "ca-jpcom-prod-web-jpe",
+        "region": "japaneast",
+        "role": "primary",
+        "url": "https://ca-jpcom-prod-web-jpe.whitegrass-af5960f3.japaneast.azurecontainerapps.io"
+      },
+      {
+        "name": "ca-jpcom-prod-web-aue",
+        "region": "australiaeast",
+        "role": "primary",
+        "url": "https://ca-jpcom-prod-web-aue.blacksmoke-966412e6.australiaeast.azurecontainerapps.io"
+      }
+    ]
+  }
+}
