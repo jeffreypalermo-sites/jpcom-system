@@ -1,0 +1,15 @@
+{
+  "web": {
+    "healthPath": "/_health/ready",
+    "alivePath": "/_health/live",
+    "versionPath": "/_version",
+    "nodes": [
+      {
+        "name": "ca-jpcom-tdd-web-eus2",
+        "region": "eastus2",
+        "role": "primary",
+        "url": "https://ca-jpcom-tdd-web-eus2.whitehill-0f16c6d6.eastus2.azurecontainerapps.io"
+      }
+    ]
+  }
+}
