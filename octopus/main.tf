@@ -8,7 +8,7 @@ variable "octopus_access_token" {
 }
 
 variable "github_token" {
-  description = "GitHub token the pin step commits environments/<env>/versions.json with (repository secret OCTOPUS_GITHUB_TOKEN)."
+  description = "GitHub token the deployments commit environments/<env>/versions.json (the pin) and nodes.json (the nodes of an application with its own runtime) with (repository secret OCTOPUS_GITHUB_TOKEN)."
   type        = string
   sensitive   = true
 }

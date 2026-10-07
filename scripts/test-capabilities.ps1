@@ -62,6 +62,15 @@ function Get-RepoFile([string] $Repo, [string] $Path) {
     $content = gh api "repos/$Repo/contents/$Path" --jq .content
     [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String((($content -join '') -replace '\s', '')))
 }
+function Find-RepoFile([string] $Repo, [string] $Path) {
+    # The text of a file on the repository's default branch, or nothing when the branch has no such file (404).
+    $PSNativeCommandUseErrorActionPreference = $false
+    $answer = @(gh api "repos/$Repo/contents/$Path" --jq .content 2>&1 | ForEach-Object { "$_" })
+    $code = $LASTEXITCODE
+    $PSNativeCommandUseErrorActionPreference = $true
+    if ($code -eq 0) { return [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String((($answer -join '') -replace '\s', ''))) }
+    if (($answer -join ' ') -notmatch 'HTTP 404') { throw "cannot read $Path of ${Repo}: $($answer -join ' ')" }
+}
 function Get-RequiredCheck([string] $Repo) {
     $id = gh api "repos/$Repo/rulesets" --jq '.[] | select(.name=="default-branch") | .id'
     @(gh api "repos/$Repo/rulesets/$id" --jq '.rules[] | select(.type=="required_status_checks") | .parameters.required_status_checks[].context')
@@ -200,6 +209,42 @@ function Get-RecentRun([string] $Runbook, [int] $Days) {
     $runs
 }
 function Assert-That([bool] $Condition, [string] $Message) { if (-not $Condition) { throw $Message } }
+function Get-ContainerDeployable([hashtable] $System) {
+    # The names of the deployables that run as container apps the system's infra/ creates (hosting "containerapp",
+    # also when left out).
+    @($System.deployables | Where-Object { -not $_.ContainsKey('hosting') -or $_.hosting -eq 'containerapp' } | ForEach-Object { [string] $_.name })
+}
+function Get-ExpectedNode([hashtable] $System, [hashtable] $Recorded = @{}) {
+    # The nodes the dashboard's topology must list, each as "<environment>/<deployable>/<node>". An App Service
+    # deployable: the names the naming convention gives (primary, and standby where the environment has a
+    # standbyLocation). A deployable with hosting "own": the addresses its application reported, from
+    # environments/<env>/nodes.json on main ($Recorded: environment to that file, parsed; no entry where main has
+    # none). It asks nothing: the same input gives the same list.
+    foreach ($entry in @($System.environments)) {
+        $e = [string] $entry.name
+        foreach ($d in @($System.deployables)) {
+            $name = [string] $d.name
+            if ($d['hosting'] -eq 'appservice') {
+                "$e/$name/app-$($System.system.slug)-$e-$name"
+                if ($entry['standbyLocation']) { "$e/$name/app-$($System.system.slug)-$e-$name-$($entry.standbyLocation)" }
+            }
+            elseif ($d['hosting'] -eq 'own' -and $Recorded[$e] -is [Collections.IDictionary] -and $Recorded[$e][$name] -is [Collections.IDictionary]) {
+                foreach ($node in @($Recorded[$e][$name]['nodes'] | Where-Object { $_ -is [Collections.IDictionary] })) { "$e/$name/$(([string] $node['url']).TrimEnd('/'))" }
+            }
+        }
+    }
+}
+function Get-ListedNode([hashtable] $Topology) {
+    # The nodes a served topology lists, in the same form: each one by its name and by its address.
+    foreach ($entry in @($Topology['environments'] | Where-Object { $_ })) {
+        foreach ($d in @($entry['deployables'] | Where-Object { $_ })) {
+            foreach ($node in @($d['nodes'] | Where-Object { $_ })) {
+                "$($entry['name'])/$($d['name'])/$($node['name'])"
+                "$($entry['name'])/$($d['name'])/$(([string] $node['url']).TrimEnd('/'))"
+            }
+        }
+    }
+}
 
 $checks = [ordered] @{
     'CAP-001' = { $rules = gh api "repos/$systemRepo/rulesets" --jq '[.[] | select(.name=="default-branch" and .enforcement=="active")] | length'; Assert-That ([int] $rules -eq 1) 'no active default-branch ruleset'; 'ruleset default-branch active' }
@@ -317,7 +362,9 @@ $checks = [ordered] @{
             if ($paid) { return "Free plans, except the declared Basic plan of $($paid -join ', '), which is Free while the system is dormant" }
             return 'every app runs on a Free plan'
         }
-        if ($ownRuntime -and @($system.deployables).Count -eq 1) { Skip-Check "$deployable brings its own runtime: the system creates no app whose idle cost it could declare" }
+        # Nothing to ask where no deployable is a container app of the system's: an application with its own runtime,
+        # alone or next to the dashboard (a static site on the Free plan).
+        if ($ownRuntime -and @(Get-ContainerDeployable $system).Count -eq 0) { Skip-Check "$deployable brings its own runtime, and no other deployable is a container app: the system creates no app whose idle cost it could declare" }
         # Every container app scales to zero, except a deployable that system.json declares always on ("alwaysOn":
         # true: a background service), which keeps exactly one replica: a declared cost, not an accident.
         $alwaysOn = @($system.deployables | Where-Object { $_['alwaysOn'] -eq $true } | ForEach-Object { [string] $_.name })
@@ -510,18 +557,21 @@ $checks = [ordered] @{
     'CAP-075' = {
         # One page shows every node: the dashboard (the deployable with hosting "staticwebapp") serves the topology its
         # deployment wrote, and in every environment it runs in, that topology lists every environment of system.json
-        # and, for each App Service deployable, the nodes the naming convention gives (primary, and standby where the
-        # environment has a standbyLocation). A topology older than system.json fails: deploy the dashboard again.
+        # and every node that is known: for each App Service deployable the nodes the naming convention gives (primary,
+        # and standby where the environment has a standbyLocation), and for each deployable with hosting "own" the
+        # nodes its application reported (environments/<env>/nodes.json on main). A topology older than system.json or
+        # than that record fails: deploy the dashboard again.
         $dashboard = @($system.deployables | Where-Object { $_['hosting'] -eq 'staticwebapp' }) | Select-Object -First 1
         if (-not $dashboard) { Skip-Check 'no deployable with hosting staticwebapp yet' }
         $dashboardName = [string] $dashboard.name
-        $apps = @($system.deployables | Where-Object { $_['hosting'] -eq 'appservice' } | ForEach-Object { [string] $_.name })
-        $want = @(foreach ($entry in $system.environments) {
-                foreach ($app in $apps) {
-                    "$($entry.name)/$app/app-$slug-$($entry.name)-$app"
-                    if ($entry['standbyLocation']) { "$($entry.name)/$app/app-$slug-$($entry.name)-$app-$($entry.standbyLocation)" }
-                }
-            })
+        $recorded = @{}
+        if (@($system.deployables | Where-Object { $_['hosting'] -eq 'own' }).Count -gt 0) {
+            foreach ($e in $environments) {
+                $text = Find-RepoFile $systemRepo "environments/$e/nodes.json"
+                if ($text) { $recorded[$e] = $text | ConvertFrom-Json -AsHashtable }
+            }
+        }
+        $want = @(Get-ExpectedNode $system $recorded)
         $shown = foreach ($e in $environments) {
             if (-not (Find-LastDeployment "$slug-$dashboardName" $e)) { continue }
             $url = ([string] (az stack group show --name "stack-$slug-$e" --resource-group (Get-Group $e) --query "outputs.deployables.value[?name=='$dashboardName'].url | [0]" --output tsv)).Trim()
@@ -531,7 +581,7 @@ $checks = [ordered] @{
             $listed = @($topology['environments'] | Where-Object { $_ })
             $absent = @($environments | Where-Object { @($listed | ForEach-Object { [string] $_['name'] }) -notcontains $_ })
             Assert-That ($absent.Count -eq 0) "the dashboard in $e does not list $($absent -join ', '): deploy the release of $slug-$dashboardName to $e again"
-            $got = @(foreach ($entry in $listed) { foreach ($d in @($entry['deployables'] | Where-Object { $_ })) { foreach ($node in @($d['nodes'] | Where-Object { $_ })) { "$($entry['name'])/$($d['name'])/$($node['name'])" } } })
+            $got = @(Get-ListedNode $topology)
             $lost = @($want | Where-Object { $got -notcontains $_ })
             Assert-That ($lost.Count -eq 0) "the dashboard in $e does not list the node(s) $($lost -join ', '): deploy the release of $slug-$dashboardName to $e again"
             "$e $url"

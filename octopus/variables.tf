@@ -129,7 +129,7 @@ resource "octopusdeploy_variable" "github_token" {
   type            = "Sensitive"
   is_sensitive    = true
   sensitive_value = var.github_token
-  description     = "Reads environments/<env>/versions.json from main and, in deployable projects, commits the pin; the dashboard's deployment reads system.json with it. From repository secret OCTOPUS_GITHUB_TOKEN."
+  description     = "Reads environments/<env>/versions.json from main and, in deployable projects, commits the pin; a deployable with hosting own also commits its nodes (environments/<env>/nodes.json); the dashboard's deployment reads system.json and those nodes with it. From repository secret OCTOPUS_GITHUB_TOKEN."
 }
 
 # One task per environment at a time, across both projects and the runbooks: an app deployment, a system deployment
