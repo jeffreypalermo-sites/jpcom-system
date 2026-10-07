@@ -302,13 +302,15 @@ module appServiceStandby 'modules/appservice.bicep' = if (!empty(appServiceDeplo
   }
 }
 
-// Only with a static deployable: one Static Web App per deployable, in staticLocation.
+// Only with a static deployable: one Static Web App per deployable, in staticLocation, on the Free plan unless the
+// environment names another (environments[].staticPlan: a subscription holds at most 10 Free sites).
 module staticSites 'modules/staticwebapp.bicep' = if (!empty(staticDeployables)) {
   name: 'staticwebapp-${environmentName}'
   params: {
     slug: slug
     environmentName: environmentName
     location: staticLocation
+    plan: union({ staticPlan: 'Free' }, rawEnvironment).staticPlan
     tags: tags
     deployables: staticDeployables
     versions: versions

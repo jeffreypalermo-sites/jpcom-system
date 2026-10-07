@@ -265,6 +265,12 @@ foreach ($environment in $system.environments) {
         }
     }
 
+    # The plan of the environment's Static Web Apps (the dashboard): Free unless set. A subscription holds at most 10
+    # sites on the Free plan; Standard has a monthly price per site and no such limit.
+    if ($environment.ContainsKey('staticPlan')) {
+        Test-Rule "environment $name staticPlan" (@('Free', 'Standard') -ccontains $environment.staticPlan) "'$($environment.staticPlan)' is not Free or Standard"
+    }
+
     # A standby region (the App Service apps a second time, behind the environment's Front Door endpoint) and the
     # capability "frontdoor" (an endpoint in the system's profile, azure.frontDoor).
     if ($environment.ContainsKey('standbyLocation')) {
