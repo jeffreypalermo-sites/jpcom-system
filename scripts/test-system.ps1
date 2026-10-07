@@ -13,7 +13,9 @@
     - The slug, environment and deployable names follow the naming rules every template relies on.
     - Each deployable's hosting is one the templates know: containerapp (the default), appservice or staticwebapp.
     - Each environment has a tier (nonprod or prod), a runtime identity from the seed and a folder
-      environments/<env>/ with a versions.json object whose keys are deployables.
+      environments/<env>/ with a versions.json object whose keys are deployables. A nodes.json there, which the
+      deployments of the deployables with hosting own write, names only such deployables, each with at least one
+      node that has an address.
     - Each capability has a module: baseline is built in, every other one is infra/modules/<capability>.bicep.
     - employeeMiddleNames, where an environment has it, maps user names to middle names of 1 to 100 characters.
     - acceptanceTestsFilter, where a deployable has it, is a dotnet test filter (for example TestCategory=Smoke) on a
@@ -24,7 +26,7 @@
       environments it exists in, the first one among them), alwaysOn and database (true or false), cpu, settings and
       environmentSettings (environment variable to text), urlSetting, and secrets (name, env, generate; never a value).
     - azure.appEnvironment, where present (the system owns its Container Apps environment), has the seed's shape, and
-      then no environment chooses a placement of its own and every deployable is a container app.
+      then no environment chooses a placement of its own and no deployable runs on App Service.
 #>
 [CmdletBinding()]
 param(
@@ -92,8 +94,9 @@ foreach ($deployable in @($system.deployables)) {
 # azure.appEnvironment (the seed's output with the demo file's azure.appEnvironment "system"): the system's one Container
 # Apps environment, which every environment runs its container apps in (infra/main.bicep). It carries what the
 # templates read, and the environments then choose no placement of their own: no appLocation, no
-# sharesAppEnvironmentWith. Its deployables run on Container Apps (an App Service or static deployable has no
-# Container Apps environment to share).
+# sharesAppEnvironmentWith. Its apps run on Container Apps, the system's (containerapp) or the application's own
+# (own); the dashboard (staticwebapp) is a static site that needs no Container Apps environment and may stand next
+# to them. An App Service deployable is not combined with it.
 if ($system.azure.ContainsKey('appEnvironment')) {
     $appEnvironment = $system.azure.appEnvironment
     $shape = $appEnvironment -is [Collections.IDictionary] -and
@@ -111,7 +114,7 @@ if ($system.azure.ContainsKey('appEnvironment')) {
         }
     }
     foreach ($deployable in @($system.deployables)) {
-        Test-Rule "deployable $($deployable.name) on Container Apps" (-not $deployable.ContainsKey('hosting') -or $deployable.hosting -cin 'containerapp', 'own') "with azure.appEnvironment every deployable is a container app; '$($deployable['hosting'])' has no place in it"
+        Test-Rule "deployable $($deployable.name) on Container Apps" (-not $deployable.ContainsKey('hosting') -or $deployable.hosting -cin 'containerapp', 'own', 'staticwebapp') "with azure.appEnvironment every app is a container app (containerapp or own), next to a staticwebapp dashboard at most; '$($deployable['hosting'])' has no place in it"
     }
 }
 
@@ -302,6 +305,28 @@ foreach ($environment in $system.environments) {
     # A deployable with "environments" exists only there: another environment cannot pin a version of it.
     $elsewhere = @($system.deployables | Where-Object { $_.ContainsKey('environments') -and $_.environments -is [array] -and $_.environments -cnotcontains $name -and $versions.ContainsKey([string] $_.name) } | ForEach-Object { [string] $_.name })
     if ($elsewhere.Count -gt 0) { Test-Rule "environment $name versions.json pins only its own deployables" $false "$($elsewhere -join ', ') do not exist in $name (deployables[].environments)" }
+
+    # nodes.json: what each deployable with hosting "own" reported as its nodes when it was last verified here. The
+    # step "Verify deployable" writes it (scripts/invoke-application.ps1, which checks every field); this rule keeps a
+    # change made by pull request from breaking the dashboard, which reads it (scripts/deploy-staticwebapp.ps1).
+    $nodesFile = Join-Path $Root 'environments' $name 'nodes.json'
+    if (Test-Path -LiteralPath $nodesFile) {
+        $recorded = try { Get-Content -LiteralPath $nodesFile -Raw | ConvertFrom-Json -AsHashtable -NoEnumerate } catch { $null }
+        Test-Rule "environment $name nodes.json" ($recorded -is [Collections.IDictionary]) 'a JSON object of deployable to its nodes'
+        if ($recorded -is [Collections.IDictionary]) {
+            $ownNames = @($system.deployables | Where-Object { $_['hosting'] -ceq 'own' } | ForEach-Object { [string] $_.name })
+            $strangers = @($recorded.Keys | Where-Object { $ownNames -cnotcontains $_ })
+            Test-Rule "environment $name nodes.json keys" ($strangers.Count -eq 0) "not deployables with hosting own: $($strangers -join ', ')"
+            foreach ($key in @($recorded.Keys | Where-Object { $ownNames -ccontains $_ })) {
+                $entry = $recorded[$key]
+                $nodes = $null
+                if ($entry -is [Collections.IDictionary] -and $entry.Contains('nodes')) { $nodes = $entry['nodes'] }
+                $valid = $nodes -is [array] -and $nodes.Count -gt 0 -and
+                    @($nodes | Where-Object { $_ -isnot [Collections.IDictionary] -or $_['url'] -isnot [string] -or $_['url'] -cnotmatch '^https?://[^\s/]+' }).Count -eq 0
+                Test-Rule "environment $name nodes.json $key" $valid 'nodes: a list of at least one node, each with "url", an absolute http or https address (the deployment of the deployable writes this entry)'
+            }
+        }
+    }
 }
 
 # Optional: the size of a tier's App Service plan, { "<tier>": "F1" | "B1" } (F1, the Free plan, when left out).

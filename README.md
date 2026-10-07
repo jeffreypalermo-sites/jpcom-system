@@ -13,6 +13,7 @@ Every change to an environment is a pull request here:
 |---|---|---|
 | `system.json` | The system: slug, Azure and Octopus identifiers, the deployables, the environments with their tier and capabilities | People, by pull request |
 | `environments/<env>/versions.json` | The version of each deployable in that environment, `{}` before the first deployment | Octopus only (step "Pin version"), straight to `main` |
+| `environments/<env>/nodes.json` | The nodes of each deployable with hosting `own` in that environment, as its application reported them when it was last verified there: `{ "<deployable>": { "frontDoor", "healthPath", "alivePath", "versionPath", "nodes": [{ "name", "region", "role", "url" }] } }`. Absent until an application reports some. The dashboard's deployment reads it | Octopus only (step "Verify deployable" of that deployable), straight to `main` |
 | `infra/` | Bicep for one environment: `main.bicep` reads `system.json`; `modules/` holds one module per capability | People, by pull request |
 | `octopus/` | Terraform for the Octopus configuration, also read from `system.json` | People, by pull request |
 | `scripts/` | The Octopus step scripts and the checks | People, by pull request |
@@ -24,7 +25,7 @@ Every change to an environment is a pull request here:
 | Workflow | When | What |
 |---|---|---|
 | `env-checks` | Every pull request | Required check: `system.json` rules, Bicep build, Terraform format and validate. A what-if preview per environment appears in the job summary, but doesn't block |
-| `system` | Every merge to `main`, except pin commits | Configures Octopus from `octopus/`, packages the commit, then creates a release of `<slug>-system`. Octopus deploys it to the first environment automatically and to later ones on promotion |
+| `system` | Every merge to `main`, except what a deployment records (a pin, an application's nodes) | Configures Octopus from `octopus/`, packages the commit, then creates a release of `<slug>-system`. Octopus deploys it to the first environment automatically and to later ones on promotion |
 | `drift` | Nightly | What-if of `main` against every environment; the run turns red when an environment differs from Git |
 
 In Octopus, two kinds of project run against these environments:
@@ -41,7 +42,7 @@ In Octopus, two kinds of project run against these environments:
 |---|---|
 | Add an environment | Append it to `environments` in `system.json` with its tier, and add `environments/<env>/versions.json` containing `{}`. After the merge, promote the new `<slug>-system` release to it in Octopus, then promote the app release |
 | Add a capability | Add its name to the environment's `capabilities`; a new capability also adds `infra/modules/<capability>.bicep` and one condition in `infra/main.bicep` (see `telemetry`) |
-| Add a deployable | Append it to `deployables` in `system.json`. A new project `<slug>-<name>` appears in Octopus, and the new app repository's release workflow creates its releases. Its `hosting` says where it runs: `own` (the application brings its runtime: `infra/` creates nothing for it, and its project runs the `deploy.ps1` and `verify.ps1` of its release's package), `containerapp` (a container app, when left out), `appservice` (a web app on the tier's Free plan, deployed as a zip) or `staticwebapp` (a site of static files on Azure Static Web Apps: the health dashboard, whose deployment writes the list of nodes it shows) |
+| Add a deployable | Append it to `deployables` in `system.json`. A new project `<slug>-<name>` appears in Octopus, and the new app repository's release workflow creates its releases. Its `hosting` says where it runs: `own` (the application brings its runtime: `infra/` creates nothing for it, and its project runs the `deploy.ps1` and `verify.ps1` of its release's package; the nodes its `verify.ps1` reports are recorded in `environments/<env>/nodes.json`), `containerapp` (a container app, when left out), `appservice` (a web app on the tier's Free plan, deployed as a zip) or `staticwebapp` (a site of static files on Azure Static Web Apps: the health dashboard, whose deployment writes the list of nodes it shows: those of the App Service deployables, and those the deployables with hosting `own` reported) |
 | Keep a deployable to some environments | Add `environments` to a container deployable in `system.json`: the list of environments it exists in, the first environment among them. The others get none of its resources, and its Octopus project gets a lifecycle of its own with only those environments |
 | Keep a background service running | `"alwaysOn": true` on a container deployable: exactly one replica, never zero. `"cpu"` (`"0.5"`, `"1"`, `"1.5"`, `"2"`) gives it a size of its own, and `"database": false` leaves the SQL connection string out |
 | Change an app's settings | `settings` on a container deployable (`{ "<environment variable>": "<text>" }`), and `environmentSettings` (`{ "<environment>": { ... } }`) for what differs in one environment; `urlSetting` names the variable that gets the app's own public address. They reach an environment when the `<slug>-system` release is deployed there |

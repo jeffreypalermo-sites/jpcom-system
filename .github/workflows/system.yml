@@ -1,11 +1,13 @@
-# The system pipeline. Every merge to main (except a pin commit, which changes only environments/*/versions.json, and a
-# documentation change under docs/ or in Markdown):
+# The system pipeline. Every merge to main (except what a deployment records, a commit that changes only
+# environments/*/versions.json, the pin, or environments/*/nodes.json, the nodes an application with its own runtime
+# reported; and a documentation change under docs/ or in Markdown):
 #   1. octopus-apply   configures Octopus from octopus/ and system.json (environments, lifecycle, accounts, projects)
 #   2. system-release  packages this commit as <slug>-system <version> and creates the release of <slug>-system;
 #                      the lifecycle deploys it to the first environment, which applies infra/ there.
 # On the very first push this run is what creates the Octopus projects and then the first Azure environment.
 # Credentials: GitHub OIDC only. Azure as id-<slug>-octopus-config (Terraform state), Octopus as the system's service
-# account (OctopusDeploy/login). The one stored secret is OCTOPUS_GITHUB_TOKEN, handed to Octopus for the pin step.
+# account (OctopusDeploy/login). The one stored secret is OCTOPUS_GITHUB_TOKEN, handed to Octopus for what its
+# deployments record in this repository (the pin, the nodes).
 name: system
 
 on:
@@ -13,6 +15,7 @@ on:
     branches: [main]
     paths-ignore:
       - "environments/*/versions.json"
+      - "environments/*/nodes.json"
       - "**/*.md"
       - "docs/**"
   workflow_dispatch:

@@ -483,7 +483,9 @@ resource "octopusdeploy_process_step" "deploy_staticwebapp" {
 
 # hosting "own": the application's own deploy.ps1 and verify.ps1, from the package its release carries (the content of
 # the application repository's deploy/ folder), run as the tier's deploy identity. Same step names as every other
-# deployable, so the lifecycle, the pin and the checks read alike.
+# deployable, so the lifecycle, the pin and the checks read alike. "Verify deployable" also records the nodes the
+# application reported in environments/<env>/nodes.json on main, with GitHub.Token (variables.tf: every project has
+# it, unscoped), for the dashboard's topology.
 resource "octopusdeploy_process_step" "deploy_own" {
   for_each = local.own_deployables
 
