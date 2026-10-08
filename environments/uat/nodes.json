@@ -4,6 +4,7 @@
     "healthPath": "/_health/ready",
     "alivePath": "/_health/live",
     "versionPath": "/_version",
+    "healthReport": false,
     "nodes": [
       {
         "name": "ca-jpcom-uat-web-eus2",
