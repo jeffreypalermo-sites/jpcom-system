@@ -23,7 +23,8 @@
     - octopus.approvers, where present, lists each person who may sign off once, by Octopus username or email address,
       without the system's service account; octopus.operator, where present, is a username.
     - A container deployable's own keys, where present, have the shape infra/ and octopus/ read: environments (the
-      environments it exists in, the first one among them), alwaysOn and database (true or false), cpu, settings and
+      environments it exists in, the first one among them; a static site may name them too), alwaysOn and database
+      (true or false), cpu, settings and
       environmentSettings (environment variable to text), urlSetting, and secrets (name, env, generate; never a value).
     - azure.appEnvironment, where present (the system owns its Container Apps environment), has the seed's shape, and
       then no environment chooses a placement of its own and no deployable runs on App Service.
@@ -166,8 +167,13 @@ foreach ($deployable in @($system.deployables)) {
     $used = @($containerKeys | Where-Object { $deployable.ContainsKey($_) })
     if ($used.Count -eq 0) { continue }
     $isContainer = -not $deployable.ContainsKey('hosting') -or $deployable.hosting -ceq 'containerapp'
-    Test-Rule "deployable $name $($used -join ', ') on a container app" $isContainer "these keys apply to hosting containerapp only; $name has hosting '$($deployable['hosting'])'"
-    if (-not $isContainer) { continue }
+    # A static site may name its environments too (the dashboard in the first environment only, where the
+    # subscription's 10 Free Static Web Apps are used up: jpcom, 2026-10-08). The other keys are a container app's.
+    $staticWithEnvironments = $deployable['hosting'] -ceq 'staticwebapp' -and ($used -join ',') -ceq 'environments'
+    if (-not $staticWithEnvironments) {
+        Test-Rule "deployable $name $($used -join ', ') on a container app" $isContainer "these keys apply to hosting containerapp only (environments also to staticwebapp); $name has hosting '$($deployable['hosting'])'"
+        if (-not $isContainer) { continue }
+    }
 
     $here = $environmentNamesDeclared
     if ($deployable.ContainsKey('environments')) {
@@ -180,6 +186,7 @@ foreach ($deployable in @($system.deployables)) {
             $here = @($listed)
         }
     }
+    if ($staticWithEnvironments) { continue }
     foreach ($key in 'alwaysOn', 'database') {
         if ($deployable.ContainsKey($key)) { Test-Rule "deployable $name $key" ($deployable[$key] -is [bool]) 'true or false' }
     }

@@ -87,7 +87,7 @@ var sqlServerFqdn = '${sqlServerName}${az.environment().suffixes.sqlServerHostna
 // schema: the app creates its message queues at startup); the others share it, read and write.
 // deployables[].hosting "staticwebapp": a site of static files on Azure Static Web Apps (modules/staticwebapp.bicep):
 // the health dashboard, which has no server, no identity and no database login.
-// deployables[].environments (container deployables only, scripts/test-system.ps1): the environments the deployable
+// deployables[].environments (container deployables and static sites, scripts/test-system.ps1): the environments the deployable
 // exists in; left out, it exists in every environment. An environment it does not name gets none of its resources.
 // A deployable with hosting "own" brings its runtime (principle 007): nothing below creates anything for it, and it
 // is no entry of the output "deployables". Its own project deploys and verifies it.

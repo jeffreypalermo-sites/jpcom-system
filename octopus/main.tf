@@ -46,7 +46,7 @@ locals {
   # (scripts/invoke-application.ps1).
   own_deployables      = { for name, d in local.deployables : name => d if try(d.hosting, "containerapp") == "own" }
   migrated_deployables = { for name, d in local.deployables : name => d if try(d.databasePackage, "") != "" }
-  # deployables[].environments: a deployable that exists in some environments only (a container deployable; the rule
+  # deployables[].environments: a deployable that exists in some environments only (a container or a static site; the rule
   # is in scripts/test-system.ps1). It gets a lifecycle of its own with those environments, in the system's order, so
   # Octopus offers its releases nowhere else.
   restricted_deployables = { for name, d in local.deployables : name => d if can(d.environments) }
