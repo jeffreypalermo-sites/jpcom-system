@@ -1,0 +1,68 @@
+# This system follows the demo-environment kit by pulling (principle 006): nothing is pushed into this repository.
+# Every day this workflow compares the repository with the kit's templates and, when they differ, opens a pull
+# request here with the kit's files (branch kit-templates), or updates the one that is open. It never merges: the
+# system's owner reads the env-checks preview, merges and promotes the release to every environment, or closes the
+# pull request and declares the files this system keeps as its own (fleet.ownedTemplates of its registry file in the
+# kit; the proposal leaves those alone).
+# The switch is the repository variable KIT_REPOSITORY (<owner>/<name> of the kit): without it the workflow does
+# nothing, and the owner removes it to stop following. It follows the kit's branch green, which moves to a commit of
+# main only after the kit's gate passed on it (KIT_REF names another branch or tag). It runs the kit's own sync-system-templates.ps1 -Propose, as
+# the identity of OCTOPUS_GITHUB_TOKEN: the kit is a private repository, and a pull request that changes workflow
+# files and starts env-checks cannot come from the run's own token.
+name: kit-templates
+
+on:
+  schedule:
+    - cron: "17 9 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kit-templates
+  cancel-in-progress: false
+
+jobs:
+  propose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Whether this system follows the kit
+        id: follow
+        env:
+          KIT_REPOSITORY: ${{ vars.KIT_REPOSITORY }}
+        run: |
+          if [ -z "$KIT_REPOSITORY" ]; then
+            echo "SKIP the repository variable KIT_REPOSITORY is not set: this system does not follow the kit"
+            echo "on=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "on=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v6.0.1
+        if: steps.follow.outputs.on == 'true'
+        with:
+          repository: ${{ vars.KIT_REPOSITORY }}
+          ref: ${{ vars.KIT_REF || 'green' }}
+          token: ${{ secrets.OCTOPUS_GITHUB_TOKEN }}
+          path: kit
+          persist-credentials: false
+
+      - name: Propose the kit's templates to this repository
+        if: steps.follow.outputs.on == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.OCTOPUS_GITHUB_TOKEN }}
+        run: |
+          # This system's file in the kit's registry: the one whose system repository is this repository.
+          $file = Get-ChildItem -LiteralPath kit/fleet/systems -Filter '*.json' | Where-Object {
+            $demo = Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json
+            "$($demo.githubOrg)/$($demo.slug)-system" -eq $env:GITHUB_REPOSITORY
+          } | Select-Object -First 1
+          if (-not $file) {
+            Write-Host "FAIL no file of fleet/systems in the kit names $env:GITHUB_REPOSITORY as its system repository"
+            exit 1
+          }
+          pwsh -NoProfile -File kit/.claude/skills/demo-environment/scripts/sync-system-templates.ps1 -Config $file.FullName -Propose
+          exit $LASTEXITCODE

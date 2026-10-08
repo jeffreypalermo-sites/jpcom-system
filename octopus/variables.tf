@@ -11,7 +11,9 @@ locals {
     for project, id in local.project_ids : [
       { key = "${project}-slug", project = id, name = "System.Slug", value = local.slug, environment = null },
       { key = "${project}-repository", project = id, name = "System.Repository", value = local.repository, environment = null },
-      { key = "${project}-registry", project = id, name = "Azure.RegistryServer", value = local.system.azure.registry.loginServer, environment = null },
+      # The login server of the system's registry (system.json azure.registry), empty without one: only the step
+      # "Update deployable" of a container app reads it, and a system that needs no registry has none.
+      { key = "${project}-registry", project = id, name = "Azure.RegistryServer", value = try(local.system.azure.registry.loginServer, ""), environment = null },
       { key = "${project}-deployable", project = id, name = "Deployable.Name", value = project == "system" ? "" : project, environment = null },
       # The resource group of the system's Front Door profile (system.json azure.frontDoor), empty without one: the
       # scripts read the environment's endpoints from stack-<slug>-<env>-edge there.
@@ -77,6 +79,33 @@ locals {
     }
   ]
 
+  # Per environment, the names of the deployables its stack creates: every hosting but "own", in the environments the
+  # deployable exists in (deployables[].environments; without it, all of them).
+  stack_deployables = {
+    for environment in keys(local.environments) : environment => [
+      for name, d in local.deployables : name
+      if !contains(keys(local.own_deployables), name) && contains(try(d.environments, [environment]), environment)
+    ]
+  }
+
+  # Only in a system that has a deployable with hosting "own" (the application brings its own runtime), in the system
+  # project. System.OwnDeployables: their names, joined by commas. System.StackDeployables, per environment: the names
+  # above; an environment whose stack creates no deployable has no such variable. Step "Verify environment" and the
+  # runbook "Health report" pass over a stack that lists nothing only where the first names an application and the
+  # second names none; in every other system neither variable exists, and such a stack fails them.
+  own_variables = flatten([
+    for names in [keys(local.own_deployables)] : concat(
+      [{ key = "system-own-deployables", project = octopusdeploy_project.system.id, name = "System.OwnDeployables", value = join(",", names), environment = null }],
+      [for environment, created in local.stack_deployables : {
+        key         = "system-stack-deployables-${environment}"
+        project     = octopusdeploy_project.system.id
+        name        = "System.StackDeployables"
+        value       = join(",", created)
+        environment = environment
+      } if length(created) > 0]
+    ) if length(names) > 0
+  ])
+
   # Employee.MiddleNames: the environment's employeeMiddleNames as JSON, in the environments that declare some.
   middle_name_variables = [
     for name in local.middle_name_environments : {
@@ -88,7 +117,21 @@ locals {
     }
   ]
 
-  string_variables = { for v in concat(local.shared_variables, local.deployable_variables, local.secret_variables, local.test_variables, local.loader_variables, local.middle_name_variables) : v.key => v }
+  # System.HealthPaths: the health path system.json declares for each container deployable, as JSON
+  # ({ "<name>": "<path>" }), in the system project once the runbook "Restart apps" exists. The runbook asks an app that
+  # runs a release on that path: the stack's output names "/" for a deployable that had no version at the
+  # environment's last apply, and "/" answers while the app's own health check fails.
+  health_path_variables = [
+    for key in ["system-health-paths"] : {
+      key         = key
+      project     = octopusdeploy_project.system.id
+      name        = "System.HealthPaths"
+      value       = jsonencode({ for name, d in local.container_deployables : name => d.healthPath })
+      environment = null
+    } if length(local.secret_deployables) > 0
+  ]
+
+  string_variables = { for v in concat(local.shared_variables, local.deployable_variables, local.secret_variables, local.test_variables, local.loader_variables, local.own_variables, local.middle_name_variables, local.health_path_variables) : v.key => v }
 }
 
 resource "octopusdeploy_variable" "string" {
@@ -121,6 +164,29 @@ resource "octopusdeploy_variable" "azure_account" {
   }
 }
 
+# GitHub.Token reaches only the steps whose script reads it: in the system project "Apply environment" (the versions
+# of versions.json), in a deployable's project "Pin version" and "Revert pin" (the commit to versions.json), for a
+# static site "Update deployable" (system.json and the recorded nodes) and, for a deployable with hosting "own",
+# "Record nodes" and "Record nodes after revert" (the commit to nodes.json; they run nothing of the application's).
+# Octopus hands a variable scoped to steps to no other step and to no runbook. The steps that run an application's
+# own scripts ("Update deployable", "Verify deployable", "Revert deployable" and "Verify revert" of such a
+# deployable: scripts/invoke-application.ps1) are not among them, and neither are the steps that run an
+# application's assemblies (the migration, the seeder, the acceptance tests). A step that starts to read the token is
+# added here, and tests/test-token-scope.ps1 in the kit fails until it is; a step that runs code of an application is
+# never added.
+locals {
+  token_steps = merge(
+    { system = [octopusdeploy_process_step.system_apply.action_id] },
+    {
+      for name in keys(local.deployables) : name => concat(
+        [octopusdeploy_process_step.pin[name].action_id, octopusdeploy_process_step.revert_pin[name].action_id],
+        contains(keys(local.static_deployables), name) ? [octopusdeploy_process_step.deploy_staticwebapp[name].action_id] : [],
+        contains(keys(local.own_deployables), name) ? [octopusdeploy_process_step.record_nodes[name].action_id, octopusdeploy_process_step.record_reverted_nodes[name].action_id] : [],
+      )
+    }
+  )
+}
+
 resource "octopusdeploy_variable" "github_token" {
   for_each = local.project_ids
 
@@ -129,7 +195,11 @@ resource "octopusdeploy_variable" "github_token" {
   type            = "Sensitive"
   is_sensitive    = true
   sensitive_value = var.github_token
-  description     = "Reads environments/<env>/versions.json from main and, in deployable projects, commits the pin; a deployable with hosting own also commits its nodes (environments/<env>/nodes.json); the dashboard's deployment reads system.json and those nodes with it. From repository secret OCTOPUS_GITHUB_TOKEN."
+  description     = "Reads environments/<env>/versions.json from main and, in deployable projects, commits the pin; step Record nodes of a deployable with hosting own commits its nodes (environments/<env>/nodes.json); the dashboard's deployment reads system.json and those nodes with it. Scoped to the steps that read it. From repository secret OCTOPUS_GITHUB_TOKEN."
+
+  scope {
+    actions = local.token_steps[each.key]
+  }
 }
 
 # One task per environment at a time, across both projects and the runbooks: an app deployment, a system deployment

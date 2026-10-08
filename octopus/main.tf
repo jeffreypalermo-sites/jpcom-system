@@ -113,6 +113,12 @@ resource "octopusdeploy_lifecycle" "system" {
 # lifecycle and this one is deleted. Octopus refuses to delete a lifecycle a project still uses, and without this
 # setting Terraform deletes it first ("This lifecycle cannot be deleted because it is being used by the following
 # projects": jpcom's dashboard, 2026-10-08). With it, the deletion waits until the project has been changed.
+# Caution: Terraform takes the order of a deletion from what it recorded in its state when the resource was last
+# applied, not from this file as it is when the resource is gone from it. A lifecycle that was last applied before
+# this setting was here is still deleted first. Such a system needs one apply with the lifecycle still present (it
+# records the setting and changes nothing else) before "environments" is taken away from the deployable. When it was
+# taken away too early, octopus-apply fails with the message above and no system release is made: put "environments"
+# back, apply, then remove it (jpcom, 2026-10-08, system pull requests 19 to 22; reference.md, troubleshooting).
 resource "octopusdeploy_lifecycle" "deployable" {
   for_each = local.restricted_deployables
 

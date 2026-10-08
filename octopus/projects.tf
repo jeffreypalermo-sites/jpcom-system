@@ -483,9 +483,9 @@ resource "octopusdeploy_process_step" "deploy_staticwebapp" {
 
 # hosting "own": the application's own deploy.ps1 and verify.ps1, from the package its release carries (the content of
 # the application repository's deploy/ folder), run as the tier's deploy identity. Same step names as every other
-# deployable, so the lifecycle, the pin and the checks read alike. "Verify deployable" also records the nodes the
-# application reported in environments/<env>/nodes.json on main, with GitHub.Token (variables.tf: every project has
-# it, unscoped), for the dashboard's topology.
+# deployable, so the lifecycle, the pin and the checks read alike. These steps run code from the application's
+# repository and do not receive GitHub.Token (variables.tf, token_steps). "Verify deployable" hands the nodes the
+# application reported to "Record nodes" (below) as text, in its output variables.
 resource "octopusdeploy_process_step" "deploy_own" {
   for_each = local.own_deployables
 
@@ -550,6 +550,29 @@ resource "octopusdeploy_process_step" "verify_own" {
   }
 }
 
+# The nodes the application reported go to environments/<env>/nodes.json on main in a step of their own, right after
+# "Verify deployable". That step runs the application's verify.ps1 and receives no GitHub.Token; this one receives it
+# (variables.tf, token_steps) and runs nothing of the application's: it has no package, and all it reads of the
+# application is the text "Verify deployable" left in its output variables, which it checks before it commits
+# (scripts/record-nodes.ps1).
+resource "octopusdeploy_process_step" "record_nodes" {
+  for_each = local.own_deployables
+
+  process_id     = octopusdeploy_process.deployable[each.key].id
+  name           = "Record nodes"
+  type           = "Octopus.Script"
+  worker_pool_id = local.worker_pool_id
+  container      = local.container
+
+  execution_properties = {
+    "Octopus.Action.RunOnServer"         = "true"
+    "Octopus.Action.Script.ScriptSource" = "Inline"
+    "Octopus.Action.Script.Syntax"       = "PowerShell"
+    "Octopus.Action.Script.ScriptBody"   = file("${path.module}/../scripts/record-nodes.ps1")
+    "OctopusUseBundledTooling"           = "False"
+  }
+}
+
 # Runs only when an earlier step failed, before "Revert pin": the application's deploy.ps1 again, with the version the
 # environment ran before. For any other deployable the next apply of the stack puts the pinned version back; nothing
 # of the system's applies an application's own runtime, so without this step a failed verification would leave the
@@ -583,6 +606,71 @@ resource "octopusdeploy_process_step" "revert_own" {
     "Octopus.Action.Script.ScriptSource" = "Inline"
     "Octopus.Action.Script.Syntax"       = "PowerShell"
     "Octopus.Action.Script.ScriptBody"   = file("${path.module}/../scripts/invoke-application.ps1")
+    "OctopusUseBundledTooling"           = "False"
+  }
+}
+
+# A rollback is verified like an update (the kit's decision 0018, which the fleet reads from the process: a step after
+# "Revert deployable" whose slug starts with "verify-", that waits for it and runs when the deployment has failed).
+# Right after "Revert deployable", on failure only: the application's verify.ps1 with the version the environment ran
+# before. It asks whether the environment runs the version versions.json will name once "Revert pin" has run, also
+# after a revert that failed (it then says that the revert failed, and fails whatever verify.ps1 answers: "Revert
+# deployable" tells it in its output variable Reverted). It runs the application's script, so it receives no
+# GitHub.Token (variables.tf, token_steps), and the script is stopped after 15 minutes: it stands before "Revert pin",
+# and a verify.ps1 that hangs must not keep the pin from being put back (scripts/invoke-application.ps1). Octopus
+# makes the slug from the name: "Verify revert" is verify-revert.
+resource "octopusdeploy_process_step" "verify_revert" {
+  for_each = local.own_deployables
+
+  process_id     = octopusdeploy_process.deployable[each.key].id
+  name           = "Verify revert"
+  type           = "Octopus.AzurePowerShell"
+  condition      = "Failure"
+  worker_pool_id = local.worker_pool_id
+  container      = local.container
+
+  packages = {
+    app = {
+      package_id           = "${local.slug}-${each.key}"
+      feed_id              = local.built_in_feed_id
+      acquisition_location = "Server"
+      properties = {
+        Extract       = "True"
+        Purpose       = ""
+        SelectionMode = "immediate"
+      }
+    }
+  }
+
+  execution_properties = {
+    "Octopus.Action.Azure.AccountId"     = "#{Azure.Account}"
+    "Octopus.Action.RunOnServer"         = "true"
+    "Octopus.Action.Script.ScriptSource" = "Inline"
+    "Octopus.Action.Script.Syntax"       = "PowerShell"
+    "Octopus.Action.Script.ScriptBody"   = file("${path.module}/../scripts/invoke-application.ps1")
+    "OctopusUseBundledTooling"           = "False"
+  }
+}
+
+# The nodes the verified revert reported go to environments/<env>/nodes.json, as "Record nodes" records those of an
+# update: the deploy.ps1 of the release that failed put the version before back and may have changed what it runs on,
+# and the record says what runs. On failure only, right after "Verify revert"; like "Record nodes" it receives
+# GitHub.Token, has no package and runs nothing of the application's (scripts/record-nodes.ps1).
+resource "octopusdeploy_process_step" "record_reverted_nodes" {
+  for_each = local.own_deployables
+
+  process_id     = octopusdeploy_process.deployable[each.key].id
+  name           = "Record nodes after revert"
+  type           = "Octopus.Script"
+  condition      = "Failure"
+  worker_pool_id = local.worker_pool_id
+  container      = local.container
+
+  execution_properties = {
+    "Octopus.Action.RunOnServer"         = "true"
+    "Octopus.Action.Script.ScriptSource" = "Inline"
+    "Octopus.Action.Script.Syntax"       = "PowerShell"
+    "Octopus.Action.Script.ScriptBody"   = file("${path.module}/../scripts/record-nodes.ps1")
     "OctopusUseBundledTooling"           = "False"
   }
 }
@@ -645,7 +733,13 @@ resource "octopusdeploy_process_steps_order" "deployable" {
     contains(keys(local.own_deployables), each.key) ? [
       octopusdeploy_process_step.deploy_own[each.key].id,
       octopusdeploy_process_step.verify_own[each.key].id,
+      octopusdeploy_process_step.record_nodes[each.key].id,
+      # On failure, in this order: the environment is put back first, then asked, then the two records are written
+      # (the nodes, then the pin: "Revert pin" below). None of these steps reads versions.json: each takes the
+      # version before from "Pin version".
       octopusdeploy_process_step.revert_own[each.key].id,
+      octopusdeploy_process_step.verify_revert[each.key].id,
+      octopusdeploy_process_step.record_reverted_nodes[each.key].id,
     ] : [octopusdeploy_process_step.verify[each.key].id],
     [octopusdeploy_process_step.revert_pin[each.key].id],
     contains(keys(local.tested_deployables), each.key) ? [

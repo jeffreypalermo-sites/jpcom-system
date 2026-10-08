@@ -6,7 +6,8 @@
 // vaults stay in the tier, and only the shared runtime is shared.
 // The deploy identities of both tiers may read the environment and place apps in it (the custom role
 // "Container Apps environment user (<slug>)": read and join, nothing else); the plan identity reads the group for the
-// previews and the drift check.
+// previews and the drift check, and its cost for the health dashboard (scripts/write-cost.ps1 asks Cost Management
+// at the scope of every group of system.json azure.resourceGroups, and this group is one of them).
 // azure.appEnvironmentMode "express": an Azure Container Apps express environment instead of one with workload
 // profiles. It counts against the quota ExpressEnvironmentCount (200 a region, where a subscription may get a single
 // standard environment), exists in seconds and starts an app from zero faster. It takes no custom domain, no Key Vault
@@ -74,6 +75,16 @@ resource reader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
     principalType: 'ServicePrincipal'
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'acdd72a7-3385-48ef-bd42-f606fba81ae7') // Reader
     description: 'id-${slug}-plan: previews, drift and capability checks of the system Container Apps environment'
+  }
+}
+
+resource costReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(resourceGroup().id, planPrincipalId, '72fafb9e-0641-4937-9268-a91bfd8191a3')
+  properties: {
+    principalId: planPrincipalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '72fafb9e-0641-4937-9268-a91bfd8191a3') // Cost Management Reader
+    description: 'id-${slug}-plan: the cost of the system Container Apps environment, for the health dashboard'
   }
 }
 

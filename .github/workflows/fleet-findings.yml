@@ -1,0 +1,95 @@
+# This system checks itself against what the fleet declares (the kit's docs/fleet.md), and keeps each difference as
+# an issue of this repository, on its board: templates behind the kit, an environment left behind, a failed
+# deployment or workflow, a runbook not proven in time, a prod process without a sign-off or a restore point, parts
+# left on while nobody deploys. An issue is a finding for the system's owner to decide on; nothing is applied, and the
+# workflow closes the issue when the difference is gone.
+# Pulled, not pushed (principle 006): it runs the kit's test-fleet.ps1 on this system only, with this system's own
+# identities (Octopus: its service account; Azure: id-<slug>-plan, Reader). While it succeeds, the kit's own workflow
+# opens no issue about this system. The switch is the repository variable KIT_REPOSITORY, as for kit-templates.
+# GitHub: OCTOPUS_GITHUB_TOKEN, because the kit is private and the board is a project of the organization.
+name: fleet-findings
+
+on:
+  schedule:
+    - cron: "37 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: fleet-findings
+  cancel-in-progress: false
+
+jobs:
+  findings:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: capabilities
+    steps:
+      - name: Whether this system follows the kit
+        id: follow
+        env:
+          KIT_REPOSITORY: ${{ vars.KIT_REPOSITORY }}
+        run: |
+          if [ -z "$KIT_REPOSITORY" ]; then
+            echo "SKIP the repository variable KIT_REPOSITORY is not set: the kit's workflow reports this system's findings"
+            echo "on=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "on=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The whole history: test-fleet.ps1 finds in it the version of the kit's template this repository has.
+      - uses: actions/checkout@v6.0.1
+        if: steps.follow.outputs.on == 'true'
+        with:
+          repository: ${{ vars.KIT_REPOSITORY }}
+          ref: ${{ vars.KIT_REF || 'green' }}
+          token: ${{ secrets.OCTOPUS_GITHUB_TOKEN }}
+          path: kit
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Sign in to Octopus
+        if: steps.follow.outputs.on == 'true'
+        uses: OctopusDeploy/login@v2
+        with:
+          server: ${{ vars.OCTOPUS_URL }}
+          service_account_id: ${{ vars.OCTOPUS_SERVICE_ACCOUNT_ID }}
+
+      - uses: azure/login@v3
+        if: steps.follow.outputs.on == 'true'
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID_PLAN }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      # Exit code 1 (findings) is the content, not a failure; 2 (a source not read) fails the run.
+      - name: Find the differences and keep them as issues on the board
+        if: steps.follow.outputs.on == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.OCTOPUS_GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          $scripts = 'kit/.claude/skills/demo-environment/scripts'
+          # This system's file in the kit's registry: the one whose system repository is this repository.
+          $demo = Get-ChildItem -LiteralPath kit/fleet/systems -Filter '*.json' | ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json } |
+            Where-Object { "$($_.githubOrg)/$($_.slug)-system" -eq $env:GITHUB_REPOSITORY } | Select-Object -First 1
+          if (-not $demo) {
+            Write-Host "FAIL no file of fleet/systems in the kit names $env:GITHUB_REPOSITORY as its system repository"
+            exit 1
+          }
+          pwsh -NoProfile -File "$scripts/test-fleet.ps1" -System $demo.slug -Json "$env:RUNNER_TEMP/findings.json"
+          $code = $LASTEXITCODE
+          if (Test-Path -LiteralPath "$env:RUNNER_TEMP/findings.json") {
+            $files = @('-Findings', "$env:RUNNER_TEMP/findings.json", '-Summary', "$env:RUNNER_TEMP/findings.md")
+            pwsh -NoProfile -File "$scripts/publish-fleet-findings.ps1" -Repository $env:GITHUB_REPOSITORY -Board -RunUrl $env:RUN_URL @files
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            Get-Content -LiteralPath "$env:RUNNER_TEMP/findings.md" >> $env:GITHUB_STEP_SUMMARY
+          }
+          if ($code -notin 0, 1) {
+            Write-Host "FAIL test-fleet.ps1 ended with ${code}: a source could not be read, so the findings are incomplete"
+            exit 1
+          }

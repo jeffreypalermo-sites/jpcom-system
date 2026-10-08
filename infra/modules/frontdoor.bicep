@@ -46,8 +46,12 @@ resource originGroups 'Microsoft.Cdn/profiles/originGroups@2024-02-01' = [
     name: '${slug}-${environmentName}-${d.name}'
     properties: {
       loadBalancingSettings: {
-        sampleSize: 4
-        successfulSamplesRequired: 3
+        // Healthy while 2 of the last 3 probes succeeded: a stopped primary is out of rotation after two failed probes.
+        // The interval comes from scripts/apply-environment.ps1: 10 seconds on a Basic plan, 30 on the Free plan, whose
+        // daily outbound data (165 MB for the plan) the answers to probes from every edge location count against.
+        // With 30 seconds and 3 of 4, cmdemo2's uat needed 36 s and 142 s in two runs.
+        sampleSize: 3
+        successfulSamplesRequired: 2
         additionalLatencyInMilliseconds: 50
       }
       healthProbeSettings: {

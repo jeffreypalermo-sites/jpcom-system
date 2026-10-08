@@ -44,14 +44,15 @@ if (-not $standby) {
     Write-Highlight "No standby region in ${environmentName}: nothing to fail over."
     return
 }
-$primary = @($outputs.deployables.value | Where-Object { $_.name -eq $standby.name })[0]
+$primary = $outputs.deployables.value | Where-Object { $_.name -eq $standby.name } | Select-Object -First 1
 $endpoint = $null
 if ($edgeGroup) {
     $PSNativeCommandUseErrorActionPreference = $false
     $edgeJson = az stack group show --name "stack-$slug-$environmentName-edge" --resource-group $edgeGroup --output json 2>$null
     $hasEdge = $LASTEXITCODE -eq 0
     $PSNativeCommandUseErrorActionPreference = $true
-    if ($hasEdge) { $endpoint = @(($edgeJson | ConvertFrom-Json -AsHashtable).outputs.endpoints.value | Where-Object { $_.name -eq $standby.name })[0] }
+    # Select-Object, not [0]: under strict mode an index into an empty list throws instead of leaving $null.
+    if ($hasEdge) { $endpoint = ($edgeJson | ConvertFrom-Json -AsHashtable).outputs.endpoints.value | Where-Object { $_.name -eq $standby.name } | Select-Object -First 1 }
 }
 if (-not $endpoint) {
     Write-Highlight "No Front Door endpoint for $($standby.name) in $environmentName (capability frontdoor off, or the Front Door dormant): nothing to fail over."

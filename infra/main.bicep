@@ -96,12 +96,14 @@ var hostedDeployables = filter(
   d => contains(d.environments, environmentName)
 )
 // A container deployable may declare more (all optional, modules/containerapps.bicep): a size of its own (cpu), one
-// replica that never scales to zero (alwaysOn), no database (database false: no SQL connection string), plain
+// replica that never scales to zero (alwaysOn; only in the environments alwaysOnEnvironments names, when it names
+// any), no database (database false: no SQL connection string), plain
 // settings as environment variables (settings, and environmentSettings.<env> on top of them), its own public address
 // as a setting (urlSetting), and secrets from the environment's vault (secrets: operator-supplied, or generated).
 var containerDefaults = {
   cpu: string(environment.appCpu)
   alwaysOn: false
+  alwaysOnEnvironments: []
   database: true
   settings: {}
   environmentSettings: {}
@@ -130,7 +132,7 @@ var containerApps = map(containerDeployables, d => {
   port: d.port
   healthPath: d.healthPath
   cpu: string(d.cpu)
-  alwaysOn: d.alwaysOn
+  alwaysOn: d.alwaysOn && (empty(d.alwaysOnEnvironments) || contains(d.alwaysOnEnvironments, environmentName))
   database: d.database
   urlSetting: d.urlSetting
   secretIdentityId: empty(d.secrets)
@@ -197,6 +199,13 @@ module sql 'modules/sql.bicep' = if (hasDatabase) {
     tags: tags
     administratorLogin: sqlAdminLogin
     administratorPassword: sqlAdminPassword
+    // A database that is never left alone (apps on a Basic plan do not sleep, and their message bus polls it) uses
+    // the month's free amount in about two days and is then paused until the next month: system.sqlFreeLimitExhaustion
+    // "BillOverUsage" keeps it running at the serverless rate instead. Unset, it pauses.
+    freeLimitExhaustionBehavior: string(union({ sqlFreeLimitExhaustion: 'AutoPause' }, system.system).sqlFreeLimitExhaustion) == 'BillOverUsage' ? 'BillOverUsage' : 'AutoPause'
+    // system.sqlSku "Basic": a fixed-price database that is always on, for a system that is never left alone (its
+    // Front Door probes the apps, the apps poll the database). Unset: serverless under the free offer.
+    databaseSku: string(union({ sqlSku: 'Serverless' }, system.system).sqlSku) == 'Basic' ? 'Basic' : 'Serverless'
   }
 }
 
@@ -249,9 +258,10 @@ module vault 'modules/keyvault.bicep' = {
 // environment of a tier owns the tier's plan, the others in the tier run their web apps on it. App Service uses the
 // system's location (appLocation is a Container Apps quota matter).
 var planOwner = first(filter(system.environments, e => e.tier == environment.tier))!.name
-// system.planSku: { "<tier>": "B1" } gives a tier's plan in the system's location a size without the Free plan's daily
-// quotas (60 CPU minutes, 165 MB of outbound data for the whole plan: one run of browser acceptance tests exceeds it,
-// and Azure then stops every app on the plan until midnight UTC). The standby plans stay Free. While the system is
+// system.planSku: { "<tier>": "B1" } gives a tier's plans, in the system's location and in its standby regions, a size
+// without the Free plan's daily quotas (60 CPU minutes, 165 MB of outbound data for the whole plan: one run of browser
+// acceptance tests exceeds it, as do a few visitors who each download the app, and Azure then stops every app on the
+// plan until midnight UTC; a standby on a Free plan would be stopped by the very failover it exists for). While the system is
 // dormant (azure.frontDoor.dormant, set-demo-frontdoor.ps1) every plan is Free again: nothing costs money between classes.
 var planSkus = union({ nonprod: 'F1', prod: 'F1' }, union({ planSku: {} }, system.system).planSku)
 var dormant = bool(union({ dormant: false }, union({ frontDoor: {} }, system.azure).frontDoor).dormant)
@@ -293,6 +303,9 @@ module appServiceStandby 'modules/appservice.bicep' = if (!empty(appServiceDeplo
     ownsPlan: standbyPlanOwner == environmentName
     nameSuffix: '-${standbyLocation}'
     role: 'standby'
+    planSku: planSku
+    // The standby reports like the primary: its requests matter most after a failover.
+    applicationInsightsConnectionString: contains(capabilities, 'telemetry') ? telemetry!.outputs.connectionString : ''
     tags: tags
     deployables: appServiceDeployables
     versions: versions
@@ -315,7 +328,8 @@ module staticSites 'modules/staticwebapp.bicep' = if (!empty(staticDeployables))
   }
 }
 
-// Only with a container deployable: a system whose apps all run on App Service has no Container Apps environment.
+// Only with a container deployable: a system whose apps all run on App Service has no Container Apps environment, and
+// no registry either (system.json then has no azure.registry: the seed creates none).
 module apps 'modules/containerapps.bicep' = if (!empty(containerDeployables)) {
   name: 'apps-${environmentName}'
   dependsOn: [
@@ -336,7 +350,7 @@ module apps 'modules/containerapps.bicep' = if (!empty(containerDeployables)) {
     deployables: containerApps
     vaultUri: vault.outputs.vaultUri
     versions: versions
-    registryServer: system.azure.registry.loginServer
+    registryServer: union({ registry: { loginServer: '' } }, system.azure).registry.loginServer
     identityResourceId: app.resourceId
     connectionStringSecretUri: vault.outputs.connectionStringSecretUri
     applicationInsightsConnectionString: contains(capabilities, 'telemetry') ? telemetry!.outputs.connectionString : ''
