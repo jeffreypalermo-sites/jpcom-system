@@ -109,8 +109,16 @@ resource "octopusdeploy_lifecycle" "system" {
 
 # A deployable with deployables[].environments: the same order and rule (the first automatic, the others by
 # promotion), over its own environments only.
+# create_before_destroy: when a deployable stops naming its environments, its project goes back to the system's
+# lifecycle and this one is deleted. Octopus refuses to delete a lifecycle a project still uses, and without this
+# setting Terraform deletes it first ("This lifecycle cannot be deleted because it is being used by the following
+# projects": jpcom's dashboard, 2026-10-08). With it, the deletion waits until the project has been changed.
 resource "octopusdeploy_lifecycle" "deployable" {
   for_each = local.restricted_deployables
+
+  lifecycle {
+    create_before_destroy = true
+  }
 
   name        = "${local.slug}-${each.key}-lifecycle"
   description = "The environments ${each.key} exists in (system.json deployables[].environments), in the order of the system: the first is automatic, the others are promoted by a person."
