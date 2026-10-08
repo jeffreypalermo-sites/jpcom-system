@@ -1,10 +1,13 @@
 # Nightly capability checks: scripts/test-capabilities.ps1 proves, read-only, every capability this system claims
 # (one check per CAP-NNN of the demo-environment kit's docs/capabilities.md): rulesets, pins, Octopus processes,
 # deployment stacks, image locks, roles, runbook results, clean deployment logs. It signs in as the system's own
-# identities: Azure as id-<slug>-plan (Reader), Octopus as the system's service account. GitHub reads go through
-# OCTOPUS_GITHUB_TOKEN because the app repository's rulesets are outside this repository's token; a read-only GitHub
-# App replaces it with CAP-050. The result is an issue with label "capability": opened or updated while a check fails,
-# closed when the next run passes. Every system build ends with the same checks (system.yml calls this workflow).
+# identities: Azure as id-<slug>-plan (Reader), Octopus as the system's service account. The GitHub reads (this
+# repository's files, rulesets and branches, and the app repository's rulesets) are made as the system's own GitHub
+# App when system.json names one (github.app; the App's key is the secret SYSTEM_APP_PRIVATE_KEY): a token for this
+# repository with Contents read only, which reads a public app repository as anyone does. Otherwise they go through
+# the stored token OCTOPUS_GITHUB_TOKEN. The result is an issue with label "capability": opened or updated while a
+# check fails, closed when the next run passes. Every system build ends with the same checks (system.yml calls this
+# workflow).
 name: capabilities
 
 on:
@@ -49,12 +52,56 @@ jobs:
           server: ${{ vars.OCTOPUS_URL }}
           service_account_id: ${{ vars.OCTOPUS_SERVICE_ACCOUNT_ID }}
 
+      # A system.json that names a GitHub App in part, or names one whose key is not stored, stops the run: nothing
+      # falls back to the stored token.
+      - name: Which GitHub identity
+        id: identity
+        env:
+          STORES_APP_KEY: ${{ secrets.SYSTEM_APP_PRIVATE_KEY != '' }}
+        run: |
+          set -euo pipefail
+          app=$(jq -c '.github.app // null' system.json)
+          if [ "$(jq -r 'type' <<<"$app")" = "null" ]; then
+            echo "GitHub identity: the stored token OCTOPUS_GITHUB_TOKEN (system.json names no GitHub App)"
+            echo "client-id=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # An App that is named in part is a system that does not work: Octopus would use the App (it reads the ids,
+          # not the client id) while this run used the stored token. The run stops, and nothing falls back.
+          back="Nothing falls back to the stored token: complete github.app, or take it out of system.json."
+          if [ "$(jq -r 'type' <<<"$app")" != "object" ]; then
+            echo "FAIL system.json github.app is not an object (id, slug, clientId, installationId). $back"
+            exit 1
+          fi
+          missing=$(jq -r '. as $named | [("id", "slug", "clientId", "installationId") | select(($named[.] // "" | tostring) == "")] | join(", ")' <<<"$app")
+          if [ -n "$missing" ]; then
+            echo "FAIL system.json names a GitHub App (github.app) without $missing: the App is configured in part. $back"
+            exit 1
+          fi
+          if [ "$STORES_APP_KEY" != "true" ]; then
+            slug=$(jq -r '.slug' <<<"$app")
+            echo "FAIL system.json names the GitHub App $slug, and its key is not stored here (secret SYSTEM_APP_PRIVATE_KEY). Nothing falls back."
+            exit 1
+          fi
+          echo "GitHub identity: the system's App $(jq -r '.slug' <<<"$app") (id $(jq -r '.id' <<<"$app")), named by system.json github.app"
+          echo "client-id=$(jq -r '.clientId' <<<"$app")" >> "$GITHUB_OUTPUT"
+
+      - name: Token of the system's App
+        id: app
+        if: steps.identity.outputs.client-id != ''
+        # By commit, not by tag: the action is handed a private key. The commit is the one tag v3.2.0 names.
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ steps.identity.outputs.client-id }}
+          private-key: ${{ secrets.SYSTEM_APP_PRIVATE_KEY }}
+          permission-contents: read
+
       - name: Prove every capability
         id: checks
         continue-on-error: true
         shell: pwsh
         env:
-          GH_TOKEN: ${{ secrets.OCTOPUS_GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app.outputs.token || secrets.OCTOPUS_GITHUB_TOKEN }}
         run: |
           ./scripts/test-capabilities.ps1 -WaitMinutes 40 *>&1 | Tee-Object -FilePath "${{ runner.temp }}/capabilities.txt"
           exit $LASTEXITCODE

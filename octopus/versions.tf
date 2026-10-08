@@ -9,8 +9,9 @@
 #   terraform init -backend-config=resource_group_name=<rg> -backend-config=storage_account_name=<account> \
 #     -backend-config=container_name=tfstate -backend-config=key=octopus.tfstate -backend-config=use_azuread_auth=true
 #
-# The state holds one secret: GitHub.Token (the sensitive variable the pin step uses). The state account allows no
-# shared key and no public blob access; only id-<slug>-octopus-config can read it.
+# The state holds one secret, the GitHub credential of the steps: GitHub.Token (a stored user's token), or
+# GitHub.AppPrivateKey in a system with a GitHub App of its own. The state account allows no shared key and no public
+# blob access; only id-<slug>-octopus-config can read it.
 
 terraform {
   required_version = ">= 1.7.0"

@@ -13,8 +13,7 @@
     not roll out a version that never deployed. It changes nothing when the pin did not commit, or when versions.json
     no longer pins this release (a later deployment already moved it).
 #>
-[CmdletBinding()]
-param()
+# No param block: octopus/projects.tf joins scripts/github-token.ps1 and this file into one script, this one second.
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -36,13 +35,11 @@ if ($pinned -ne 'True') {
 
 $path = "environments/$environmentName/versions.json"
 $uri = "https://api.github.com/repos/$repository/contents/$path"
-# GitHub.Token is scoped to the steps that read it (octopus/variables.tf, token_steps): a step that is not among them
-# reads it empty, and says so here instead of being refused by GitHub.
-if (-not [string] $OctopusParameters['GitHub.Token']) {
-    Fail-Step "GitHub.Token did not reach step '$([string] $OctopusParameters['Octopus.Step.Name'])': octopus/variables.tf hands it only to the steps of local.token_steps. A release made before a step was replaced has that step under its old id and gets no token there: make a new release."
-}
+# As the system's own GitHub App, with a token made now for this repository, or with the stored token of a system
+# that has no App: Get-SystemGitHubToken of scripts/github-token.ps1, which octopus/projects.tf joins with this
+# script into the step's one script body.
 $headers = @{
-    Authorization          = "Bearer $([string] $OctopusParameters['GitHub.Token'])"
+    Authorization          = "Bearer $(Get-SystemGitHubToken -Permission @{ contents = 'write' })"
     Accept                 = 'application/vnd.github+json'
     'X-GitHub-Api-Version' = '2022-11-28'
 }

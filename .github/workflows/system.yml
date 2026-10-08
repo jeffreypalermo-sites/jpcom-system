@@ -6,8 +6,10 @@
 #                      the lifecycle deploys it to the first environment, which applies infra/ there.
 # On the very first push this run is what creates the Octopus projects and then the first Azure environment.
 # Credentials: GitHub OIDC only. Azure as id-<slug>-octopus-config (Terraform state), Octopus as the system's service
-# account (OctopusDeploy/login). The one stored secret is OCTOPUS_GITHUB_TOKEN, handed to Octopus for what its
-# deployments record in this repository (the pin, the nodes).
+# account (OctopusDeploy/login). The one stored secret is the GitHub credential that Octopus reads and commits to this
+# repository with (what its deployments record here: the pin, the nodes): SYSTEM_APP_PRIVATE_KEY, the key of the
+# system's own GitHub App, in a system whose system.json names one (github.app); OCTOPUS_GITHUB_TOKEN, a user's
+# token, in a system that has no App. A secret that is not stored reaches Terraform empty.
 name: system
 
 on:
@@ -60,6 +62,7 @@ jobs:
         shell: pwsh
         env:
           TF_VAR_github_token: ${{ secrets.OCTOPUS_GITHUB_TOKEN }}
+          TF_VAR_github_app_private_key: ${{ secrets.SYSTEM_APP_PRIVATE_KEY }}
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true

@@ -78,7 +78,7 @@ resource "octopusdeploy_process_step" "system_apply" {
     "Octopus.Action.RunOnServer"         = "true"
     "Octopus.Action.Script.ScriptSource" = "Inline"
     "Octopus.Action.Script.Syntax"       = "PowerShell"
-    "Octopus.Action.Script.ScriptBody"   = file("${path.module}/../scripts/apply-environment.ps1")
+    "Octopus.Action.Script.ScriptBody"   = join("\n", [local.github_token_functions, file("${path.module}/../scripts/apply-environment.ps1")])
     "OctopusUseBundledTooling"           = "False"
   }
 }
@@ -217,7 +217,7 @@ resource "octopusdeploy_process_step" "pin" {
     "Octopus.Action.RunOnServer"         = "true"
     "Octopus.Action.Script.ScriptSource" = "Inline"
     "Octopus.Action.Script.Syntax"       = "PowerShell"
-    "Octopus.Action.Script.ScriptBody"   = file("${path.module}/../scripts/pin-version.ps1")
+    "Octopus.Action.Script.ScriptBody"   = join("\n", [local.github_token_functions, file("${path.module}/../scripts/pin-version.ps1")])
     "OctopusUseBundledTooling"           = "False"
   }
 }
@@ -476,7 +476,7 @@ resource "octopusdeploy_process_step" "deploy_staticwebapp" {
     "Octopus.Action.RunOnServer"         = "true"
     "Octopus.Action.Script.ScriptSource" = "Inline"
     "Octopus.Action.Script.Syntax"       = "PowerShell"
-    "Octopus.Action.Script.ScriptBody"   = file("${path.module}/../scripts/deploy-staticwebapp.ps1")
+    "Octopus.Action.Script.ScriptBody"   = join("\n", [local.github_token_functions, file("${path.module}/../scripts/deploy-staticwebapp.ps1")])
     "OctopusUseBundledTooling"           = "False"
   }
 }
@@ -568,7 +568,7 @@ resource "octopusdeploy_process_step" "record_nodes" {
     "Octopus.Action.RunOnServer"         = "true"
     "Octopus.Action.Script.ScriptSource" = "Inline"
     "Octopus.Action.Script.Syntax"       = "PowerShell"
-    "Octopus.Action.Script.ScriptBody"   = file("${path.module}/../scripts/record-nodes.ps1")
+    "Octopus.Action.Script.ScriptBody"   = join("\n", [local.github_token_functions, file("${path.module}/../scripts/record-nodes.ps1")])
     "OctopusUseBundledTooling"           = "False"
   }
 }
@@ -670,7 +670,7 @@ resource "octopusdeploy_process_step" "record_reverted_nodes" {
     "Octopus.Action.RunOnServer"         = "true"
     "Octopus.Action.Script.ScriptSource" = "Inline"
     "Octopus.Action.Script.Syntax"       = "PowerShell"
-    "Octopus.Action.Script.ScriptBody"   = file("${path.module}/../scripts/record-nodes.ps1")
+    "Octopus.Action.Script.ScriptBody"   = join("\n", [local.github_token_functions, file("${path.module}/../scripts/record-nodes.ps1")])
     "OctopusUseBundledTooling"           = "False"
   }
 }
@@ -711,7 +711,7 @@ resource "octopusdeploy_process_step" "revert_pin" {
     "Octopus.Action.RunOnServer"         = "true"
     "Octopus.Action.Script.ScriptSource" = "Inline"
     "Octopus.Action.Script.Syntax"       = "PowerShell"
-    "Octopus.Action.Script.ScriptBody"   = file("${path.module}/../scripts/revert-pin.ps1")
+    "Octopus.Action.Script.ScriptBody"   = join("\n", [local.github_token_functions, file("${path.module}/../scripts/revert-pin.ps1")])
     "OctopusUseBundledTooling"           = "False"
   }
 }

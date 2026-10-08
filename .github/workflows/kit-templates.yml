@@ -6,9 +6,14 @@
 # kit; the proposal leaves those alone).
 # The switch is the repository variable KIT_REPOSITORY (<owner>/<name> of the kit): without it the workflow does
 # nothing, and the owner removes it to stop following. It follows the kit's branch green, which moves to a commit of
-# main only after the kit's gate passed on it (KIT_REF names another branch or tag). It runs the kit's own sync-system-templates.ps1 -Propose, as
-# the identity of OCTOPUS_GITHUB_TOKEN: the kit is a private repository, and a pull request that changes workflow
-# files and starts env-checks cannot come from the run's own token.
+# main only after the kit's gate passed on it (KIT_REF names another branch or tag). It runs the kit's own
+# sync-system-templates.ps1 -Propose. A pull request that changes workflow files and starts env-checks cannot come
+# from the run's own token: it comes from the system's own GitHub App when system.json names one (github.app; the
+# App's key is the secret SYSTEM_APP_PRIVATE_KEY), and from the stored token OCTOPUS_GITHUB_TOKEN otherwise.
+# The kit itself is a private repository of another organization, and the system's App is installed on this
+# repository only: the kit is read as the kit's reader App where the system has it (variable KIT_READER_CLIENT_ID,
+# secret KIT_READER_PRIVATE_KEY), else with the stored token, else with the run's own token, which reaches a public
+# kit only.
 name: kit-templates
 
 on:
@@ -28,32 +33,142 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
+      # Whether this system follows the kit, and as whom it reads it. Exactly one identity reads the kit in a run:
+      # the kit's reader App where the system has it (variable KIT_READER_CLIENT_ID, secret KIT_READER_PRIVATE_KEY: an
+      # App of the kit's organization that can read the kit's repository and write nothing), else the stored token
+      # OCTOPUS_GITHUB_TOKEN (a user's token), else the run's own token, which reads a public kit only. A reader App
+      # that fails stops the run: nothing falls back.
       - name: Whether this system follows the kit
         id: follow
         env:
           KIT_REPOSITORY: ${{ vars.KIT_REPOSITORY }}
+          KIT_READER_CLIENT_ID: ${{ vars.KIT_READER_CLIENT_ID }}
+          STORES_USER_TOKEN: ${{ secrets.OCTOPUS_GITHUB_TOKEN != '' }}
         run: |
           if [ -z "$KIT_REPOSITORY" ]; then
             echo "SKIP the repository variable KIT_REPOSITORY is not set: this system does not follow the kit"
             echo "on=false" >> "$GITHUB_OUTPUT"
           else
             echo "on=true" >> "$GITHUB_OUTPUT"
+            if [ -n "$KIT_READER_CLIENT_ID" ]; then
+              echo "Kit identity: the kit's reader App (variable KIT_READER_CLIENT_ID): a token for $KIT_REPOSITORY only, to read"
+              echo "reader=true" >> "$GITHUB_OUTPUT"
+              echo "kit-owner=${KIT_REPOSITORY%%/*}" >> "$GITHUB_OUTPUT"
+              echo "kit-name=${KIT_REPOSITORY#*/}" >> "$GITHUB_OUTPUT"
+            elif [ "$STORES_USER_TOKEN" = "true" ]; then
+              echo "Kit identity: the stored token OCTOPUS_GITHUB_TOKEN (this system has no reader App of the kit)"
+            else
+              echo "Kit identity: the run's own token, which reads a public kit only (this system has no reader App of the kit and stores no token)"
+            fi
           fi
+
+      - name: Token of the kit's reader App
+        id: kit-reader
+        if: steps.follow.outputs.reader == 'true'
+        # By commit, not by tag: the action is handed a private key. The commit is the one tag v3.2.0 names.
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.KIT_READER_CLIENT_ID }}
+          private-key: ${{ secrets.KIT_READER_PRIVATE_KEY }}
+          owner: ${{ steps.follow.outputs.kit-owner }}
+          repositories: ${{ steps.follow.outputs.kit-name }}
+          permission-contents: read
 
       - uses: actions/checkout@v6.0.1
         if: steps.follow.outputs.on == 'true'
         with:
           repository: ${{ vars.KIT_REPOSITORY }}
           ref: ${{ vars.KIT_REF || 'green' }}
-          token: ${{ secrets.OCTOPUS_GITHUB_TOKEN }}
+          token: ${{ steps.kit-reader.outputs.token || secrets.OCTOPUS_GITHUB_TOKEN || github.token }}
           path: kit
           persist-credentials: false
+
+      # In GitHub this run acts as the system's own App when system.json on main names one (github.app), with a token
+      # made for this run, for this repository and the permissions below only; otherwise as the stored token
+      # OCTOPUS_GITHUB_TOKEN, a user's token, as before the App existed.
+      # A repository that stores no key of an App has no App: then nothing is asked of GitHub here, and the run is what
+      # it was before the App. With a key stored, system.json is read from main (asked again when GitHub does not
+      # answer: four attempts), and an App named in part stops the run. An App named in system.json while no key is
+      # stored is not seen here: workflow system refuses that when it plans.
+      - name: Which GitHub identity
+        id: identity
+        if: steps.follow.outputs.on == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STORES_APP_KEY: ${{ secrets.SYSTEM_APP_PRIVATE_KEY != '' }}
+        run: |
+          set -euo pipefail
+          if [ "$STORES_APP_KEY" != "true" ]; then
+            echo "GitHub identity: the stored token OCTOPUS_GITHUB_TOKEN (this repository stores no key of a GitHub App)"
+            echo "client-id=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          problem="$RUNNER_TEMP/system-json.err"
+          content=""
+          for attempt in 1 2 3 4; do
+            if content=$(gh api "repos/$GITHUB_REPOSITORY/contents/system.json" --jq .content 2> "$problem"); then
+              break
+            fi
+            if [ "$attempt" -lt 4 ] && grep -Eqi 'HTTP (408|429|5[0-9][0-9])|timeout|timed out|connection|EOF' "$problem"; then
+              echo "GitHub did not answer the read of system.json (attempt $attempt of 4); asking again in $((attempt * 5)) seconds."
+              sleep $((attempt * 5))
+              continue
+            fi
+            echo "FAIL system.json of $GITHUB_REPOSITORY could not be read from main: $(head -n 1 "$problem")"
+            exit 1
+          done
+          app=$(printf '%s' "$content" | base64 --decode | jq -c '.github.app // null')
+          if [ "$(jq -r 'type' <<<"$app")" = "null" ]; then
+            echo "GitHub identity: the stored token OCTOPUS_GITHUB_TOKEN (system.json names no GitHub App)"
+            echo "client-id=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # An App that is named in part is a system that does not work: Octopus would use the App (it reads the ids,
+          # not the client id) while this run used the stored token. The run stops, and nothing falls back.
+          back="Nothing falls back to the stored token: complete github.app, or take it out of system.json."
+          if [ "$(jq -r 'type' <<<"$app")" != "object" ]; then
+            echo "FAIL system.json github.app is not an object (id, slug, clientId, installationId). $back"
+            exit 1
+          fi
+          missing=$(jq -r '. as $named | [("id", "slug", "clientId", "installationId") | select(($named[.] // "" | tostring) == "")] | join(", ")' <<<"$app")
+          if [ -n "$missing" ]; then
+            echo "FAIL system.json names a GitHub App (github.app) without $missing: the App is configured in part. $back"
+            exit 1
+          fi
+          echo "GitHub identity: the system's App $(jq -r '.slug' <<<"$app") (id $(jq -r '.id' <<<"$app")), named by system.json github.app"
+          echo "client-id=$(jq -r '.clientId' <<<"$app")" >> "$GITHUB_OUTPUT"
+
+      # Contents and workflows: the branch kit-templates, whose commit may change workflow files. Pull requests: the
+      # one proposal, opened, updated or closed.
+      - name: Token of the system's App
+        id: app
+        if: steps.identity.outputs.client-id != ''
+        # By commit, not by tag: the action is handed a private key. The commit is the one tag v3.2.0 names.
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ steps.identity.outputs.client-id }}
+          private-key: ${{ secrets.SYSTEM_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-workflows: write
+
+      # An App's token has no user behind it: the commit's author is the App's own account, <slug>[bot].
+      - name: Commit as the system's App
+        if: steps.identity.outputs.client-id != ''
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          APP_SLUG: ${{ steps.app.outputs.app-slug }}
+        run: |
+          set -euo pipefail
+          id=$(gh api "/users/${APP_SLUG}[bot]" --jq .id)
+          git config --global user.name "${APP_SLUG}[bot]"
+          git config --global user.email "${id}+${APP_SLUG}[bot]@users.noreply.github.com"
 
       - name: Propose the kit's templates to this repository
         if: steps.follow.outputs.on == 'true'
         shell: pwsh
         env:
-          GH_TOKEN: ${{ secrets.OCTOPUS_GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app.outputs.token || secrets.OCTOPUS_GITHUB_TOKEN }}
         run: |
           # This system's file in the kit's registry: the one whose system repository is this repository.
           $file = Get-ChildItem -LiteralPath kit/fleet/systems -Filter '*.json' | Where-Object {

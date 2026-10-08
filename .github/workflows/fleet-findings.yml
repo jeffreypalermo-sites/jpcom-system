@@ -6,7 +6,14 @@
 # Pulled, not pushed (principle 006): it runs the kit's test-fleet.ps1 on this system only, with this system's own
 # identities (Octopus: its service account; Azure: id-<slug>-plan, Reader). While it succeeds, the kit's own workflow
 # opens no issue about this system. The switch is the repository variable KIT_REPOSITORY, as for kit-templates.
-# GitHub: OCTOPUS_GITHUB_TOKEN, because the kit is private and the board is a project of the organization.
+# GitHub: the run acts as the system's own GitHub App when system.json names one (github.app; the App's key is the
+# secret SYSTEM_APP_PRIVATE_KEY), and as the stored token OCTOPUS_GITHUB_TOKEN otherwise. The board is a project of
+# the organization, not part of this repository. The stored token puts each new issue on it. The system's App has no
+# permission outside this repository (decision of 2026-10-08): as the App, the findings are issues without a card on
+# the board, and the run says so in one line. The kit itself is private, and the system's App is
+# installed on this repository only: the kit is read as the kit's reader App where the system has it (variable
+# KIT_READER_CLIENT_ID, secret KIT_READER_PRIVATE_KEY), else with the stored token, else with the run's own token,
+# which reaches a public kit only.
 name: fleet-findings
 
 on:
@@ -28,17 +35,46 @@ jobs:
     timeout-minutes: 30
     environment: capabilities
     steps:
+      # Whether this system follows the kit, and as whom it reads it. Exactly one identity reads the kit in a run:
+      # the kit's reader App where the system has it (variable KIT_READER_CLIENT_ID, secret KIT_READER_PRIVATE_KEY: an
+      # App of the kit's organization that can read the kit's repository and write nothing), else the stored token
+      # OCTOPUS_GITHUB_TOKEN (a user's token), else the run's own token, which reads a public kit only. A reader App
+      # that fails stops the run: nothing falls back.
       - name: Whether this system follows the kit
         id: follow
         env:
           KIT_REPOSITORY: ${{ vars.KIT_REPOSITORY }}
+          KIT_READER_CLIENT_ID: ${{ vars.KIT_READER_CLIENT_ID }}
+          STORES_USER_TOKEN: ${{ secrets.OCTOPUS_GITHUB_TOKEN != '' }}
         run: |
           if [ -z "$KIT_REPOSITORY" ]; then
             echo "SKIP the repository variable KIT_REPOSITORY is not set: the kit's workflow reports this system's findings"
             echo "on=false" >> "$GITHUB_OUTPUT"
           else
             echo "on=true" >> "$GITHUB_OUTPUT"
+            if [ -n "$KIT_READER_CLIENT_ID" ]; then
+              echo "Kit identity: the kit's reader App (variable KIT_READER_CLIENT_ID): a token for $KIT_REPOSITORY only, to read"
+              echo "reader=true" >> "$GITHUB_OUTPUT"
+              echo "kit-owner=${KIT_REPOSITORY%%/*}" >> "$GITHUB_OUTPUT"
+              echo "kit-name=${KIT_REPOSITORY#*/}" >> "$GITHUB_OUTPUT"
+            elif [ "$STORES_USER_TOKEN" = "true" ]; then
+              echo "Kit identity: the stored token OCTOPUS_GITHUB_TOKEN (this system has no reader App of the kit)"
+            else
+              echo "Kit identity: the run's own token, which reads a public kit only (this system has no reader App of the kit and stores no token)"
+            fi
           fi
+
+      - name: Token of the kit's reader App
+        id: kit-reader
+        if: steps.follow.outputs.reader == 'true'
+        # By commit, not by tag: the action is handed a private key. The commit is the one tag v3.2.0 names.
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.KIT_READER_CLIENT_ID }}
+          private-key: ${{ secrets.KIT_READER_PRIVATE_KEY }}
+          owner: ${{ steps.follow.outputs.kit-owner }}
+          repositories: ${{ steps.follow.outputs.kit-name }}
+          permission-contents: read
 
       # The whole history: test-fleet.ps1 finds in it the version of the kit's template this repository has.
       - uses: actions/checkout@v6.0.1
@@ -46,10 +82,81 @@ jobs:
         with:
           repository: ${{ vars.KIT_REPOSITORY }}
           ref: ${{ vars.KIT_REF || 'green' }}
-          token: ${{ secrets.OCTOPUS_GITHUB_TOKEN }}
+          token: ${{ steps.kit-reader.outputs.token || secrets.OCTOPUS_GITHUB_TOKEN || github.token }}
           path: kit
           fetch-depth: 0
           persist-credentials: false
+
+      # In GitHub this run acts as the system's own App when system.json on main names one (github.app), with a token
+      # made for this run, for this repository and the permissions below only; otherwise as the stored token
+      # OCTOPUS_GITHUB_TOKEN, a user's token, as before the App existed.
+      # A repository that stores no key of an App has no App: then nothing is asked of GitHub here, and the run is what
+      # it was before the App. With a key stored, system.json is read from main (asked again when GitHub does not
+      # answer: four attempts), and an App named in part stops the run. An App named in system.json while no key is
+      # stored is not seen here: workflow system refuses that when it plans.
+      - name: Which GitHub identity
+        id: identity
+        if: steps.follow.outputs.on == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STORES_APP_KEY: ${{ secrets.SYSTEM_APP_PRIVATE_KEY != '' }}
+        run: |
+          set -euo pipefail
+          if [ "$STORES_APP_KEY" != "true" ]; then
+            echo "GitHub identity: the stored token OCTOPUS_GITHUB_TOKEN (this repository stores no key of a GitHub App)"
+            echo "client-id=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          problem="$RUNNER_TEMP/system-json.err"
+          content=""
+          for attempt in 1 2 3 4; do
+            if content=$(gh api "repos/$GITHUB_REPOSITORY/contents/system.json" --jq .content 2> "$problem"); then
+              break
+            fi
+            if [ "$attempt" -lt 4 ] && grep -Eqi 'HTTP (408|429|5[0-9][0-9])|timeout|timed out|connection|EOF' "$problem"; then
+              echo "GitHub did not answer the read of system.json (attempt $attempt of 4); asking again in $((attempt * 5)) seconds."
+              sleep $((attempt * 5))
+              continue
+            fi
+            echo "FAIL system.json of $GITHUB_REPOSITORY could not be read from main: $(head -n 1 "$problem")"
+            exit 1
+          done
+          app=$(printf '%s' "$content" | base64 --decode | jq -c '.github.app // null')
+          if [ "$(jq -r 'type' <<<"$app")" = "null" ]; then
+            echo "GitHub identity: the stored token OCTOPUS_GITHUB_TOKEN (system.json names no GitHub App)"
+            echo "client-id=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # An App that is named in part is a system that does not work: Octopus would use the App (it reads the ids,
+          # not the client id) while this run used the stored token. The run stops, and nothing falls back.
+          back="Nothing falls back to the stored token: complete github.app, or take it out of system.json."
+          if [ "$(jq -r 'type' <<<"$app")" != "object" ]; then
+            echo "FAIL system.json github.app is not an object (id, slug, clientId, installationId). $back"
+            exit 1
+          fi
+          missing=$(jq -r '. as $named | [("id", "slug", "clientId", "installationId") | select(($named[.] // "" | tostring) == "")] | join(", ")' <<<"$app")
+          if [ -n "$missing" ]; then
+            echo "FAIL system.json names a GitHub App (github.app) without $missing: the App is configured in part. $back"
+            exit 1
+          fi
+          echo "GitHub identity: the system's App $(jq -r '.slug' <<<"$app") (id $(jq -r '.id' <<<"$app")), named by system.json github.app"
+          echo "client-id=$(jq -r '.clientId' <<<"$app")" >> "$GITHUB_OUTPUT"
+
+      # Issues: the findings and their label. Contents, actions and statuses, read: test-fleet.ps1 compares this
+      # repository's files, workflow runs and commit status with what the fleet declares. The app repositories are
+      # read as anyone reads a public repository. Nothing of the organization: no card on its board.
+      - name: Token of the system's App
+        id: app
+        if: steps.identity.outputs.client-id != ''
+        # By commit, not by tag: the action is handed a private key. The commit is the one tag v3.2.0 names.
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ steps.identity.outputs.client-id }}
+          private-key: ${{ secrets.SYSTEM_APP_PRIVATE_KEY }}
+          permission-issues: write
+          permission-contents: read
+          permission-actions: read
+          permission-statuses: read
 
       - name: Sign in to Octopus
         if: steps.follow.outputs.on == 'true'
@@ -70,7 +177,8 @@ jobs:
         if: steps.follow.outputs.on == 'true'
         shell: pwsh
         env:
-          GH_TOKEN: ${{ secrets.OCTOPUS_GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app.outputs.token || secrets.OCTOPUS_GITHUB_TOKEN }}
+          SYSTEM_APP_CLIENT_ID: ${{ steps.identity.outputs.client-id }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           $scripts = 'kit/.claude/skills/demo-environment/scripts'
@@ -85,7 +193,15 @@ jobs:
           $code = $LASTEXITCODE
           if (Test-Path -LiteralPath "$env:RUNNER_TEMP/findings.json") {
             $files = @('-Findings', "$env:RUNNER_TEMP/findings.json", '-Summary', "$env:RUNNER_TEMP/findings.md")
-            pwsh -NoProfile -File "$scripts/publish-fleet-findings.ps1" -Repository $env:GITHUB_REPOSITORY -Board -RunUrl $env:RUN_URL @files
+            # The card on the board: with the stored token, as before. Not as the system's App, which stays inside
+            # this repository and has no permission on the organization's projects.
+            $board = @('-Board')
+            if ($env:SYSTEM_APP_CLIENT_ID) {
+              Write-Host ('SKIP board: the findings are issues of this repository without a card on the board. ' +
+                'The board is a project of the organization, and the system''s GitHub App stays inside its repository (decision of 2026-10-08).')
+              $board = @()
+            }
+            pwsh -NoProfile -File "$scripts/publish-fleet-findings.ps1" -Repository $env:GITHUB_REPOSITORY @board -RunUrl $env:RUN_URL @files
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             Get-Content -LiteralPath "$env:RUNNER_TEMP/findings.md" >> $env:GITHUB_STEP_SUMMARY
           }

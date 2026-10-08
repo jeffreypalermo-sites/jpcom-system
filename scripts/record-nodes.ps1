@@ -19,9 +19,12 @@
     not pass, or nothing was put back, there is no report: the record stays as it is.
 
     Why a step of its own. "Verify deployable" runs the application's verify.ps1 (scripts/invoke-application.ps1),
-    and a step that runs code from an application's repository does not receive GitHub.Token, which writes to main of
-    the system repository (octopus/variables.tf, token_steps). This step receives the token and runs nothing of the
-    application's: it has no package, and it starts no script. All it takes from the step before is text, the output
+    and a step that runs code from an application's repository does not receive the credential that writes to main
+    of the system repository: the stored GitHub.Token, or the key of the system's own GitHub App
+    (octopus/variables.tf, token_steps). This step receives it and runs nothing of the application's: it has no
+    package, and it starts no script. The functions that make its token (scripts/github-token.ps1) are part of
+    this step's own script body: octopus/projects.tf joins that file and this one when Terraform plans, so no text
+    is run here that a step could have set. All it takes from the step before is text, the output
     variables NodesReported and Nodes of "Verify deployable": what verify.ps1 wrote to its nodesFile, unread. That
     text is the application's and is treated as such: it is parsed as JSON, checked against the rules below, and
     only the known fields, with the types the rules name, are written, under the name of this project's deployable,
@@ -45,8 +48,9 @@
     Each field has an allow-list (ConvertTo-NodeRecord below says which characters and how long), and a value
     outside it makes the report invalid: nothing is stripped or repaired.
     The record is committed as { "<deployable>": { ... } } next to the other deployables' entries, keys in order,
-    through the contents API with GitHub.Token, the way "Pin version" commits versions.json (scripts/pin-version.ps1:
-    read, compare, write, again after a 409). A record that is already the same is not committed again (a
+    through the contents API, as the system's own GitHub App or with the stored GitHub.Token of a system without one
+    (scripts/github-token.ps1), the way "Pin version" commits versions.json (scripts/pin-version.ps1: read, compare,
+    write, again after a 409). A record that is already the same is not committed again (a
     redeployment). No report: the step succeeds, says that the application reported no nodes, and leaves the record
     as it is. The dashboard's deployment (scripts/deploy-staticwebapp.ps1) reads the record; the system workflow
     ignores a push that changes only nodes.json.
@@ -57,14 +61,16 @@
     successfully with ONE warning line that says what was not recorded, why, and what follows: for a report that
     breaks a rule or a limit (every problem named), for a nodes.json on main that is not a JSON object, for GitHub
     not answering after the retries of a known transient failure (no answer, 408, 429, 5xx: four attempts), for a
-    file that changed at each of four attempts to write it, for a request GitHub refuses, and for an error of this
-    script. Octopus then shows the deployment as succeeded with warnings, which the kit's test-deployment-logs.ps1
+    file that changed at each of four attempts to write it, for a request GitHub refuses, for an error of this
+    script, and for GitHub not giving the App its token after the same four attempts (no answer, 408, 429, 5xx). Octopus then shows the deployment as succeeded with warnings, which the kit's test-deployment-logs.ps1
     and the fleet's log finding report; the dashboard keeps the nodes of the last record meanwhile.
-    One failure stays a failure: GitHub.Token did not reach the step. That is a system that does not work (the
-    scope of the variable leaves the step out), not a record that could not be written.
+    What stays a failure is a system that does not work, not a record that could not be written: the credential did
+    not reach the step (GitHub.Token, or the App's key: the scope of the variable leaves the step out); the App is
+    configured in part; or GitHub refuses the App a token for a reason that does not pass by itself (401: the key is
+    not the App's; 403; 404: the installation is gone; 422: the installation does not cover the repository or lacks
+    the permission; a key that is no key). The next deployment would fail at "Pin version" for the same reason.
 #>
-[CmdletBinding()]
-param()
+# No param block: octopus/projects.tf joins scripts/github-token.ps1 and this file into one script, this one second.
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -227,13 +233,13 @@ function Save-NodeRecord {
     # Commits the record to environments/<env>/nodes.json on main: the loop of scripts/pin-version.ps1 (read,
     # compare, write, again after a 409). A conflict the next attempt gets past is information, not a warning.
     # Returns nothing when the record is on main, and otherwise why it is not (Why, and Next: what a person does).
-    param([Parameter(Mandatory)] [Collections.IDictionary] $Record)
+    param([Parameter(Mandatory)] [Collections.IDictionary] $Record, [Parameter(Mandatory)] [string] $Token)
     $repository = [string] $OctopusParameters['System.Repository']
     $deployment = [string] $OctopusParameters['Octopus.Deployment.Id']
     $path = "environments/$environmentName/nodes.json"
     $uri = "https://api.github.com/repos/$repository/contents/$path"
     $headers = @{
-        Authorization          = "Bearer $([string] $OctopusParameters['GitHub.Token'])"
+        Authorization          = "Bearer $Token"
         Accept                 = 'application/vnd.github+json'
         'X-GitHub-Api-Version' = '2022-11-28'
     }
@@ -338,15 +344,28 @@ if ($checked.Problems.Count -gt 0) {
     return
 }
 
-# GitHub.Token is scoped to the steps that read it (octopus/variables.tf, token_steps): a step that is not among them
-# reads it empty. That is a system that does not work, not a record that could not be written: the step fails.
-if (-not [string] $OctopusParameters['GitHub.Token']) {
-    Fail-Step "GitHub.Token did not reach step '$([string] $OctopusParameters['Octopus.Step.Name'])': octopus/variables.tf hands it only to the steps of local.token_steps. A release made before a step was replaced has that step under its old id and gets no token there: make a new release."
+# The credential, only now that there is a record to write: the system's own GitHub App, with a token made here for
+# this repository and its contents, or the stored token of a system without an App (Get-SystemGitHubToken of
+# scripts/github-token.ps1, which stands before this script in the step's script body: octopus/projects.tf joins
+# the two). The credential is scoped to the steps that ask for it
+# (octopus/variables.tf, token_steps): a step it did not reach, and an App configured in part, is a system that does
+# not work, not a record that could not be written, and the function fails the step there. So does a token that
+# GitHub refuses the App for a reason that does not pass by itself. Only GitHub not answering after its four
+# attempts is the one warning of a record that was not written.
+$token = ''
+$refused = $null
+try { $token = Get-SystemGitHubToken -Permission @{ contents = 'write' } }
+catch { $refused = $_ }
+if ($refused) {
+    $status = if ($refused.Exception.Data.Contains('GitHubStatus')) { [int] $refused.Exception.Data['GitHubStatus'] } else { -1 }
+    if ($status -notin 0, 408, 429, 500, 502, 503, 504) { Fail-Step $refused.Exception.Message }
+    Write-NotRecorded -Why "GitHub gave the system's App no token ($(if ($status) { "HTTP $status" } else { 'no answer' }), four attempts)" -Next "Deploy $deployable $version to $environmentName again to record them."
+    return
 }
 
 # Whatever else keeps the record from main, an error of this script too, is one warning: a deployment that was just
 # verified is not taken back because its nodes could not be written down.
 $failed = $null
-try { $failed = Save-NodeRecord -Record $checked.Record }
+try { $failed = Save-NodeRecord -Record $checked.Record -Token $token }
 catch { $failed = @{ Why = "the step could not finish ($($_.Exception.Message))"; Next = "Deploy $deployable $version to $environmentName again to record them." } }
 if ($failed) { Write-NotRecorded -Why $failed.Why -Next $failed.Next }

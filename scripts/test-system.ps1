@@ -24,6 +24,8 @@
       deployable with an acceptance-test package.
     - octopus.approvers, where present, lists each person who may sign off once, by Octopus username or email address,
       without the system's service account; octopus.operator, where present, is a username.
+    - github.app, where present (the system's own GitHub App), holds its id, slug, clientId and installationId, and
+      nothing else: never a key.
     - A container deployable's own keys, where present, have the shape infra/ and octopus/ read: environments (the
       environments it exists in, the first one among them; a static site may name them too), alwaysOn and database
       (true or false), alwaysOnEnvironments (environments of the deployable, with alwaysOn true), cpu, settings and
@@ -71,6 +73,20 @@ if ($system.octopus.ContainsKey('approvers')) {
 }
 if ($system.octopus.ContainsKey('operator')) {
     Test-Rule 'octopus.operator' ($system.octopus.operator -is [string] -and $system.octopus.operator -cmatch '^\S(?:.*\S)?$') 'the Octopus username of the operator identity, for example ai-ops'
+}
+
+# github.app (set-system-github-app.ps1 of the kit writes it): the system's own GitHub App, which the Octopus steps
+# and the workflows then act as in this repository. Identifiers only: the App's key is the repository secret
+# SYSTEM_APP_PRIVATE_KEY and never in this file. Without github.app the system uses the stored token (secret
+# OCTOPUS_GITHUB_TOKEN), as before the App existed.
+if ($system.ContainsKey('github')) {
+    $app = if ($system.github -is [Collections.IDictionary]) { $system.github['app'] } else { $null }
+    $valid = $app -is [Collections.IDictionary] -and
+        @($app.Keys | Where-Object { $_ -cnotin 'id', 'slug', 'clientId', 'installationId' }).Count -eq 0 -and
+        "$($app['id'])" -cmatch '^[1-9][0-9]*$' -and "$($app['installationId'])" -cmatch '^[1-9][0-9]*$' -and
+        $app['slug'] -is [string] -and $app['slug'] -cmatch '^[a-z0-9](?:[a-z0-9-]{0,32}[a-z0-9])?$' -and
+        $app['clientId'] -is [string] -and $app['clientId'] -cmatch '^[A-Za-z0-9._-]{8,40}$'
+    Test-Rule 'github.app' $valid 'the system''s own GitHub App: id and installationId (numbers), slug and clientId (texts) and nothing else; never a key'
 }
 
 $deployableNames = @($system.deployables | ForEach-Object { [string] $_.name })

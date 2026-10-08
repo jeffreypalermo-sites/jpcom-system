@@ -1,4 +1,5 @@
-# Project variables. The scripts read only these names; every value comes from system.json except GitHub.Token.
+# Project variables. The scripts read only these names; every value comes from system.json except the GitHub
+# credential (GitHub.Token, or GitHub.AppPrivateKey in a system with a GitHub App of its own: github.tf).
 
 locals {
   # One entry per project and variable name; environment = null means unscoped.
@@ -164,16 +165,20 @@ resource "octopusdeploy_variable" "azure_account" {
   }
 }
 
-# GitHub.Token reaches only the steps whose script reads it: in the system project "Apply environment" (the versions
-# of versions.json), in a deployable's project "Pin version" and "Revert pin" (the commit to versions.json), for a
-# static site "Update deployable" (system.json and the recorded nodes) and, for a deployable with hosting "own",
-# "Record nodes" and "Record nodes after revert" (the commit to nodes.json; they run nothing of the application's).
+# The GitHub credential of a deployment reaches only the steps whose script asks for it. The credential is
+# GitHub.Token, the stored token, in a system without a GitHub App of its own, and GitHub.AppPrivateKey, the key of
+# the system's App, in a system with one (github.tf). Both are scoped to this one list, token_steps: in the system
+# project "Apply environment" (the versions of versions.json), in a deployable's project "Pin version" and "Revert
+# pin" (the commit to versions.json), for a static site "Update deployable" (system.json and the recorded nodes)
+# and, for a deployable with hosting "own", "Record nodes" and "Record nodes after revert" (the commit to
+# nodes.json; they run nothing of the application's).
 # Octopus hands a variable scoped to steps to no other step and to no runbook. The steps that run an application's
 # own scripts ("Update deployable", "Verify deployable", "Revert deployable" and "Verify revert" of such a
 # deployable: scripts/invoke-application.ps1) are not among them, and neither are the steps that run an
-# application's assemblies (the migration, the seeder, the acceptance tests). A step that starts to read the token is
-# added here, and tests/test-token-scope.ps1 in the kit fails until it is; a step that runs code of an application is
-# never added.
+# application's assemblies (the migration, the seeder, the acceptance tests). A step that starts to ask for the
+# credential (Get-SystemGitHubToken of scripts/github-token.ps1) is added here, and its script body in projects.tf
+# is joined with that file; tests/test-token-scope.ps1 in the kit fails until both are done, and a step that is
+# neither has no such function and stops where it calls it. A step that runs code of an application is never added.
 locals {
   token_steps = merge(
     { system = [octopusdeploy_process_step.system_apply.action_id] },
@@ -187,8 +192,10 @@ locals {
   )
 }
 
+# Only in a system without a GitHub App of its own (github.tf), and only while the repository stores the token.
+# Scoped to the steps of token_steps.
 resource "octopusdeploy_variable" "github_token" {
-  for_each = local.project_ids
+  for_each = local.github_app == null && nonsensitive(var.github_token != "") ? local.project_ids : {}
 
   owner_id        = each.value
   name            = "GitHub.Token"
