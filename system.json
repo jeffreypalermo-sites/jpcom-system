@@ -106,7 +106,8 @@
       "name": "dashboard",
       "repository": "jpcom-dashboard",
       "hosting": "staticwebapp",
-      "healthPath": "/"
+      "healthPath": "/",
+      "buildPath": "/build-facts.json"
     }
   ],
   "environments": [
