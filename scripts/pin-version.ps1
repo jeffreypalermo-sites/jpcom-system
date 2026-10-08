@@ -8,14 +8,15 @@
 .DESCRIPTION
     Step "Pin version" of the Octopus project <slug>-<deployable>; octopus/projects.tf inlines this file. This is the
     GitOps write: desired state changes first, then the steps after it make the environment match. The commit goes
-    straight to main through the contents API with GitHub.Token, whose account the main ruleset lets bypass pull
-    requests; the system workflow ignores pushes that change only versions.json, so a pin never starts an
-    environment release. A pin that is already in place is not committed again (a redeployment).
+    straight to main through the contents API as the system's own GitHub App (a token made for this step, for this
+    repository and its contents only: scripts/github-token.ps1), or with the stored GitHub.Token of a system that has
+    no App. The main ruleset lets that identity bypass pull requests (the App by name; the stored token's account as
+    an owner of the organization); the system workflow ignores pushes that change only versions.json, so a pin never
+    starts an environment release. A pin that is already in place is not committed again (a redeployment).
     Output variables Pinned and PreviousVersion let step "Revert pin" put the previous version back when a later step
     fails, so main never keeps a version that did not deploy.
 #>
-[CmdletBinding()]
-param()
+# No param block: octopus/projects.tf joins scripts/github-token.ps1 and this file into one script, this one second.
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -30,13 +31,11 @@ $version = [string] $OctopusParameters['Octopus.Release.Number']
 $deployment = [string] $OctopusParameters['Octopus.Deployment.Id']
 $path = "environments/$environmentName/versions.json"
 $uri = "https://api.github.com/repos/$repository/contents/$path"
-# GitHub.Token is scoped to the steps that read it (octopus/variables.tf, token_steps): a step that is not among them
-# reads it empty, and says so here instead of being refused by GitHub.
-if (-not [string] $OctopusParameters['GitHub.Token']) {
-    Fail-Step "GitHub.Token did not reach step '$([string] $OctopusParameters['Octopus.Step.Name'])': octopus/variables.tf hands it only to the steps of local.token_steps. A release made before a step was replaced has that step under its old id and gets no token there: make a new release."
-}
+# As the system's own GitHub App, with a token made now for this repository, or with the stored token of a system
+# that has no App: Get-SystemGitHubToken of scripts/github-token.ps1, which octopus/projects.tf joins with this
+# script into the step's one script body.
 $headers = @{
-    Authorization          = "Bearer $([string] $OctopusParameters['GitHub.Token'])"
+    Authorization          = "Bearer $(Get-SystemGitHubToken -Permission @{ contents = 'write' })"
     Accept                 = 'application/vnd.github+json'
     'X-GitHub-Api-Version' = '2022-11-28'
 }
