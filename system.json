@@ -106,10 +106,7 @@
       "name": "dashboard",
       "repository": "jpcom-dashboard",
       "hosting": "staticwebapp",
-      "healthPath": "/",
-      "environments": [
-        "tdd"
-      ]
+      "healthPath": "/"
     }
   ],
   "environments": [
