@@ -1,0 +1,150 @@
+# Delivery facts for the health dashboard: scripts/write-delivery.ps1 reads, per environment and deployable, the release
+# of the last successful deployment, who signed it off and why, the commit it was built from and the lead time, how far
+# the environment is behind the first one, the deployments of the last seven days and the last measured failover. The
+# result is delivery.json on branch "status": one commit, replaced (force-pushed) by every run that finds a change, so
+# main gets no commits and the branch no history. The dashboard reads it from the browser at
+# https://raw.githubusercontent.com/<org>/<repository>/status/delivery.json (the repository is public).
+# It runs when Octopus pins a version (every deployment commits environments/<env>/versions.json), hourly, and on
+# demand. The pin is committed in the middle of its deployment, so the script first waits for running deployments.
+# Cost, in the same commit: scripts/write-cost.ps1 reads Azure Cost Management for the system's resource groups (per
+# environment by the tag "environment": yesterday, seven days, the month to date) and the result is cost.json next to
+# delivery.json. Hourly and on demand only: Azure's cost changes by the day, and Cost Management throttles its readers.
+# A file whose content did not change, apart from its time of generation, stays as published, so "generated" of each
+# file is the time of its last change; a run that changes neither pushes nothing.
+# Credentials: GitHub OIDC to Octopus as the system's service account and to Azure as id-<slug>-plan (environment
+# "capabilities", read-only use; the seed makes the identity Cost Management Reader of the system's resource groups),
+# and this workflow's own token to read the commits and to push the branch. No stored secret.
+name: delivery
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "environments/**/versions.json"
+  schedule:
+    - cron: "37 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: delivery
+  cancel-in-progress: false
+
+jobs:
+  delivery:
+    runs-on: ubuntu-24.04
+    environment: capabilities
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6.0.1
+
+      - name: Sign in to Octopus
+        uses: OctopusDeploy/login@v2
+        with:
+          server: ${{ vars.OCTOPUS_URL }}
+          service_account_id: ${{ vars.OCTOPUS_SERVICE_ACCOUNT_ID }}
+
+      - name: Write delivery.json
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/write-delivery.ps1 -Path "${{ runner.temp }}/delivery.json" -WaitMinutes 30
+
+      # Cost comes after the wait for the deployments (an OIDC sign-in to Azure lasts an hour) and never holds the
+      # delivery facts back: when the sign-in or the read fails, delivery.json is published all the same, the published
+      # cost.json stays, and the last step fails the run.
+      - name: Sign in to Azure
+        id: azure
+        if: github.event_name != 'push'
+        continue-on-error: true
+        uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID_PLAN }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      # The published cost.json, for write-cost.ps1 to compare with: a run that Azure throttled in part does not
+      # replace a file of the same day or the day before that knows more (the script's help).
+      - name: Fetch the published cost.json
+        if: steps.azure.outcome == 'success'
+        continue-on-error: true
+        env:
+          TARGET: ${{ runner.temp }}/cost.published.json
+        run: |
+          set -euo pipefail
+          if [ -n "$(git ls-remote --heads origin status)" ]; then
+            git fetch --quiet --depth=1 origin status
+            if git cat-file -e FETCH_HEAD:cost.json 2>/dev/null; then
+              git show FETCH_HEAD:cost.json > "$TARGET"
+            fi
+          fi
+
+      - name: Write cost.json
+        id: cost
+        if: steps.azure.outcome == 'success'
+        continue-on-error: true
+        shell: pwsh
+        # The hourly runs ask Azure every six hours while the published file is complete and of the last complete day
+        # (the script's help says which hours); a run on demand always asks.
+        run: ./scripts/write-cost.ps1 -Path "${{ runner.temp }}/cost.json" -Published "${{ runner.temp }}/cost.published.json" -EveryHours ${{ github.event_name == 'schedule' && 6 || 1 }}
+
+      # One commit without a parent, made from the files alone (no checkout of the branch), as github-actions[bot] with
+      # the token the checkout step kept. Each file is the one this run wrote when its content differs from the
+      # published one (the time of generation aside), and the published one otherwise: also when this run wrote none.
+      # Nothing is pushed when no file changed.
+      - name: Publish on branch status
+        env:
+          WRITTEN: ${{ runner.temp }}
+          PUBLISHED: ${{ runner.temp }}/published
+          GIT_AUTHOR_NAME: "github-actions[bot]"
+          GIT_AUTHOR_EMAIL: "41898282+github-actions[bot]@users.noreply.github.com"
+          GIT_COMMITTER_NAME: "github-actions[bot]"
+          GIT_COMMITTER_EMAIL: "41898282+github-actions[bot]@users.noreply.github.com"
+        run: |
+          set -euo pipefail
+          facts() { jq --sort-keys 'del(.generated)' "$1"; }
+          mkdir -p "$PUBLISHED"
+          if [ -n "$(git ls-remote --heads origin status)" ]; then
+            git fetch --quiet --depth=1 origin status
+            for file in delivery.json cost.json; do
+              if git cat-file -e "FETCH_HEAD:$file" 2>/dev/null; then
+                git show "FETCH_HEAD:$file" > "$PUBLISHED/$file"
+              fi
+            done
+          fi
+          entries=""
+          changed=""
+          for file in delivery.json cost.json; do
+            if [ ! -s "$WRITTEN/$file" ]; then
+              source="$PUBLISHED/$file"
+            elif [ -f "$PUBLISHED/$file" ] && [ "$(facts "$WRITTEN/$file")" = "$(facts "$PUBLISHED/$file" 2>/dev/null || true)" ]; then
+              source="$PUBLISHED/$file"
+            else
+              source="$WRITTEN/$file"
+              changed="$changed $file"
+            fi
+            if [ -f "$source" ]; then
+              blob=$(git hash-object -w "$source")
+              entries="$entries$(printf '100644 blob %s\t%s' "$blob" "$file")"$'\n'
+            fi
+          done
+          if [ -z "$changed" ]; then
+            echo "delivery.json and cost.json are unchanged: nothing to publish."
+            exit 0
+          fi
+          tree=$(printf '%s' "$entries" | git mktree)
+          commit=$(git commit-tree "$tree" -m "Status of $(date -u +%Y-%m-%dT%H:%M:%SZ):$changed")
+          git push --quiet --force origin "$commit:refs/heads/status"
+          echo "Published on branch status ($commit):$changed."
+
+      - name: Fail when the cost was not read
+        if: github.event_name != 'push' && (steps.azure.outcome != 'success' || steps.cost.outcome != 'success')
+        env:
+          SIGN_IN: ${{ steps.azure.outcome }}
+          READ: ${{ steps.cost.outcome }}
+        run: |
+          echo "cost.json was not written (sign-in to Azure: $SIGN_IN; write-cost.ps1: $READ). The published one stays; the step's log says why."
+          exit 1

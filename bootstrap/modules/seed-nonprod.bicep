@@ -1,5 +1,7 @@
 // The nonprod group of the seed: the shared registry, the Terraform state account of octopus/, the identities of the
-// GitHub workflows (plan, octopus-config, acr-push), and the nonprod tier (seed-tier.bicep).
+// GitHub workflows (plan, octopus-config, acr-push), and the nonprod tier (seed-tier.bicep). With containerRegistry
+// false (a system whose apps are no container images) there is no registry, and nothing that exists for it: no
+// acr-push identity, no ACR role and no ACR role assignment.
 targetScope = 'resourceGroup'
 
 param slug string
@@ -13,13 +15,16 @@ param octopusConfigSubject string
 
 @description('GitHub OIDC subject of the nightly capability checks of the system repository (environment "capabilities"); they sign in as the plan identity.')
 param capabilitiesSubject string
+
+@description('False for a system that needs no container registry: the registry, the acr-push identity and every ACR role and role assignment are left out, and the outputs registry and acrPush are {}.')
+param containerRegistry bool
 param acrPushSubjects array
 param deploySubjects array
 param appEnvironments array
 
 var suffix = take(uniqueString(resourceGroup().id, slug), 6)
 
-resource registry 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
+resource registry 'Microsoft.ContainerRegistry/registries@2023-07-01' = if (containerRegistry) {
   name: 'acr${slug}${suffix}'
   location: location
   tags: tags
@@ -57,7 +62,8 @@ resource stateContainer 'Microsoft.Storage/storageAccounts/blobServices/containe
   name: 'tfstate'
 }
 
-// The plan identity: what-if previews of pull requests and the nightly drift check (Reader).
+// The plan identity: what-if previews of pull requests, the nightly drift check (Reader) and the cost the health
+// dashboard shows (Cost Management Reader).
 resource plan 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
   name: 'id-${slug}-plan'
   location: location
@@ -94,6 +100,18 @@ module planReader 'role-assignment.bicep' = {
   }
 }
 
+// What the environments cost, for the health dashboard (workflow "delivery", scripts/write-cost.ps1): the plan identity
+// asks Cost Management at the scope of each of the system's groups, so the role is assigned per group, never on the
+// subscription.
+module planCostReader 'role-assignment.bicep' = {
+  name: 'seed-${slug}-nonprod-cost-reader'
+  params: {
+    principalId: plan.properties.principalId
+    roleDefinitionId: '72fafb9e-0641-4937-9268-a91bfd8191a3' // Cost Management Reader
+    description: 'id-${slug}-plan: the cost of nonprod, for the health dashboard'
+  }
+}
+
 // The octopus-config identity: the Terraform state of octopus/ only (Storage Blob Data Contributor on the account).
 resource octopusConfig 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
   name: 'id-${slug}-octopus-config'
@@ -123,7 +141,7 @@ resource stateWriter 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
 }
 
 // The acr-push identity: the release workflows of the app repositories push images (AcrPush on the registry).
-resource acrPush 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+resource acrPush 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = if (containerRegistry) {
   name: 'id-${slug}-acr-push'
   location: location
   tags: tags
@@ -131,7 +149,7 @@ resource acrPush 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' =
 
 @batchSize(1)
 resource acrPushCredentials 'Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials@2023-01-31' = [
-  for (subject, i) in acrPushSubjects: {
+  for (subject, i) in acrPushSubjects: if (containerRegistry) {
     parent: acrPush
     name: 'github-release-${i}'
     properties: {
@@ -142,11 +160,11 @@ resource acrPushCredentials 'Microsoft.ManagedIdentity/userAssignedIdentities/fe
   }
 ]
 
-resource acrPusher 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+resource acrPusher 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (containerRegistry) {
   name: guid(registry.id, acrPush.id, 'acrpush')
   scope: registry
   properties: {
-    principalId: acrPush.properties.principalId
+    principalId: acrPush!.properties.principalId
     principalType: 'ServicePrincipal'
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '8311e382-0749-4cb8-b61a-304f252e45ec')
     description: 'id-${slug}-acr-push: release workflows of the app repositories'
@@ -155,7 +173,7 @@ resource acrPusher 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
 
 // Released images are write-locked by the release workflow (az acr repository update --write-enabled false), which
 // AcrPush does not allow: this role adds only the repository metadata rights, on this registry.
-resource tagLockRole 'Microsoft.Authorization/roleDefinitions@2022-04-01' = {
+resource tagLockRole 'Microsoft.Authorization/roleDefinitions@2022-04-01' = if (containerRegistry) {
   name: guid(registry.id, 'acr-tag-lock')
   properties: {
     roleName: 'ACR tag lock (${slug})'
@@ -177,11 +195,11 @@ resource tagLockRole 'Microsoft.Authorization/roleDefinitions@2022-04-01' = {
   }
 }
 
-resource tagLocker 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+resource tagLocker 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (containerRegistry) {
   name: guid(registry.id, acrPush.id, 'acr-tag-lock')
   scope: registry
   properties: {
-    principalId: acrPush.properties.principalId
+    principalId: acrPush!.properties.principalId
     principalType: 'ServicePrincipal'
     roleDefinitionId: tagLockRole.id
     description: 'id-${slug}-acr-push: write-lock released image tags'
@@ -191,7 +209,7 @@ resource tagLocker 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
 // The capability checks read the lock state of released images. In permission mode "legacy" the registry hands out a
 // data-plane token only to an identity with pull rights, so metadata read alone fails the token exchange ("Unable to
 // authenticate using AAD"); both are read-only.
-resource registryMetadataReadRole 'Microsoft.Authorization/roleDefinitions@2022-04-01' = {
+resource registryMetadataReadRole 'Microsoft.Authorization/roleDefinitions@2022-04-01' = if (containerRegistry) {
   name: guid(registry.id, 'acr-metadata-read')
   properties: {
     roleName: 'ACR metadata read (${slug})'
@@ -212,7 +230,7 @@ resource registryMetadataReadRole 'Microsoft.Authorization/roleDefinitions@2022-
   }
 }
 
-resource planMetadataReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+resource planMetadataReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (containerRegistry) {
   name: guid(registry.id, plan.id, 'acr-metadata-read')
   scope: registry
   properties: {
@@ -237,7 +255,7 @@ module tier 'seed-tier.bicep' = {
   }
 }
 
-module nonprodAcrPull 'registry-pull.bicep' = {
+module nonprodAcrPull 'registry-pull.bicep' = if (containerRegistry) {
   name: 'seed-${slug}-nonprod-acr-pull'
   params: {
     registryName: registry.name
@@ -245,10 +263,13 @@ module nonprodAcrPull 'registry-pull.bicep' = {
   }
 }
 
-output registry object = {
-  name: registry.name
-  loginServer: registry.properties.loginServer
-}
+// Without a registry: {} for registry and for acrPush (seed.bicep then leaves acrPush out of its identities).
+output registry object = containerRegistry
+  ? {
+      name: registry.name
+      loginServer: registry!.properties.loginServer
+    }
+  : {}
 
 output terraformState object = {
   resourceGroup: resourceGroup().name
@@ -268,11 +289,13 @@ output octopusConfig object = {
   principalId: octopusConfig.properties.principalId
 }
 
-output acrPush object = {
-  name: acrPush.name
-  clientId: acrPush.properties.clientId
-  principalId: acrPush.properties.principalId
-}
+output acrPush object = containerRegistry
+  ? {
+      name: acrPush.name
+      clientId: acrPush!.properties.clientId
+      principalId: acrPush!.properties.principalId
+    }
+  : {}
 
 output deploy object = tier.outputs.deploy
 output apps array = tier.outputs.apps

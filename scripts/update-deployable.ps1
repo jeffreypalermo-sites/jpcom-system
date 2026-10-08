@@ -33,6 +33,11 @@ $deployable = [string] $OctopusParameters['Deployable.Name']
 $port = [string] $OctopusParameters['Deployable.Port']
 $registry = [string] $OctopusParameters['Azure.RegistryServer']
 $version = [string] $OctopusParameters['Octopus.Release.Number']
+# A system without a container app has no registry (system.json has no azure.registry), and this step is not in its
+# projects; a container app without one cannot name its image.
+if (-not $registry) {
+    Fail-Step "Azure.RegistryServer is empty: system.json has no azure.registry, and the image of $deployable comes from the system's registry."
+}
 # The container app's name comes from the stack: a shared or moved Container Apps environment gives it a suffix.
 $stackOutputs = (az stack group show --name "stack-$slug-$environmentName" --resource-group $resourceGroup --output json | ConvertFrom-Json -AsHashtable).outputs
 $app = [string] (@($stackOutputs.deployables.value | Where-Object { $_.name -eq $deployable -and $_['hosting'] -ne 'appservice' }) | Select-Object -First 1).containerApp
@@ -74,6 +79,14 @@ function Get-RevisionProblem {
         }
     }
     return $null
+}
+
+function Test-SystemAppEnvironment {
+    # Whether a container app runs in the system's own Container Apps environment (system.json azure.appEnvironment:
+    # the seed creates it in a resource group of its own) and not in one its environments create, which is in the
+    # app's own group, the tier's. From the two names alone: it asks nothing.
+    param([Parameter(Mandatory)] [AllowEmptyString()] [string] $EnvironmentId, [Parameter(Mandatory)] [string] $ResourceGroup)
+    return [bool] ($EnvironmentId -and $EnvironmentId -notmatch "/resourceGroups/$([regex]::Escape($ResourceGroup))/")
 }
 
 function Write-RevisionLog {
@@ -119,9 +132,18 @@ $before = [string] $current.properties.latestRevisionName
 #   - there is one revision, always named <app>--latest, and latestReadyRevisionName stays empty: the image the app
 #     shows and its provisioning state say when the change is done;
 #   - "az containerapp logs show" fails there; the app reports the reason of a failed change as deploymentErrors.
+# Only the system's own environment can be an express one: an environment the system's environments create is always
+# a standard one. So the mode is asked only for an app in the system's own environment, and for every other app this
+# step makes the calls it always made.
 $expressAppUri = "https://management.azure.com$($current.id)?api-version=2026-07-01"
-$environmentMode = [string] (az rest --method get --url "https://management.azure.com$($current.properties.environmentId)?api-version=2026-07-01" --query properties.environmentMode --output tsv)
-$express = $environmentMode.Trim() -eq 'Express'
+$environmentId = [string] $current.properties.environmentId
+$express = $false
+if (Test-SystemAppEnvironment -EnvironmentId $environmentId -ResourceGroup $resourceGroup) {
+    # "$( )": an environment without the property prints nothing, which is an empty text here. ([string] of a command
+    # that prints nothing is null, and a method called on it ends the step: "You cannot call a method on a
+    # null-valued expression".)
+    $express = "$(az rest --method get --url "https://management.azure.com${environmentId}?api-version=2026-07-01" --query properties.environmentMode --output tsv)".Trim() -eq 'Express'
+}
 
 # Secrets the deployable declares (system.json deployables[].secrets; variable Deployable.Secrets, the names joined by
 # commas): the environment's stack makes the app reference each one once it is in the vault. A version that starts

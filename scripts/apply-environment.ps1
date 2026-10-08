@@ -28,6 +28,10 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandArgumentPassing = 'Standard'
 $PSNativeCommandUseErrorActionPreference = $true
+
+# The Azure CLI checks once a day whether a newer Bicep exists and says so as a warning on the next command that
+# reads a template: a warning in the log that is about nothing in it. The version in use is the installed one.
+$env:AZURE_BICEP_CHECK_VERSION = 'false'
 $ProgressPreference = 'SilentlyContinue'
 
 # Every step starts in a fresh worker container. The Azure CLI writes progress spinners and, when it installs Bicep,
@@ -45,6 +49,11 @@ $stackName = "stack-$slug-$environmentName"
 
 function Get-DesiredVersion {
     # environments/<env>/versions.json on main, through the API (raw.githubusercontent.com caches for minutes).
+    # GitHub.Token is scoped to the steps that read it (octopus/variables.tf, token_steps): a step that is not among them
+    # reads it empty, and says so here instead of being refused by GitHub.
+    if (-not [string] $OctopusParameters['GitHub.Token']) {
+        Fail-Step "GitHub.Token did not reach step '$([string] $OctopusParameters['Octopus.Step.Name'])': octopus/variables.tf hands it only to the steps of local.token_steps. A release made before a step was replaced has that step under its old id and gets no token there: make a new release."
+    }
     $headers = @{
         Authorization          = "Bearer $([string] $OctopusParameters['GitHub.Token'])"
         Accept                 = 'application/vnd.github+json'
@@ -233,6 +242,20 @@ $hasDatabase = @($deployablesHere | Where-Object {
     }).Count -gt 0
 $password = if ($hasDatabase) { Get-SqlPassword -Outputs $outputs } else { Write-Host "No app in $environmentName uses a database: no SQL server, no SQL password."; '' }
 $loginNames = @($deployablesHere | Where-Object { $_['hosting'] -eq 'appservice' } | ForEach-Object { [string] $_.name })
+# A change of an App Service plan's size (system.planSku, or the dormant switch, which makes every plan Free) restarts
+# the apps on that plan: Azure moves them to other workers. The plans this environment owns carry its tag; one whose
+# size differs from the size system.json now declares will be resized by this apply, and the restart is then reported
+# below, not counted as downtime the apply caused by mistake.
+$tierName = [string] ($system.environments | Where-Object { $_.name -eq $environmentName } | Select-Object -First 1).tier
+$isDormant = $system.azure.ContainsKey('frontDoor') -and $system.azure.frontDoor['dormant']
+$wantedPlan = if (-not $isDormant -and $system.system.ContainsKey('planSku') -and $system.system.planSku[$tierName]) { [string] $system.system.planSku[$tierName] } else { 'F1' }
+$PSNativeCommandUseErrorActionPreference = $false
+$ownedPlans = @(az resource list --resource-group $resourceGroup --resource-type Microsoft.Web/serverfarms --query "[?tags.environment=='$environmentName'].{name: name, sku: sku.name}" --output json 2>$null | ConvertFrom-Json)
+$PSNativeCommandUseErrorActionPreference = $true
+$resizedPlans = @($ownedPlans | Where-Object { $_ -and $_.sku -ne $wantedPlan } | ForEach-Object { "$($_.name) $($_.sku) to $wantedPlan" })
+if ($resizedPlans.Count -gt 0) {
+    Write-Host "This apply changes a plan size ($($resizedPlans -join ', ')): the apps on it restart."
+}
 $loginPasswords = Get-LoginPassword -Outputs $outputs -Names $loginNames
 $secrets = Get-DeployableSecret -Outputs $outputs -Deployables $deployablesHere
 foreach ($name in $secrets.Missing.Keys) {
@@ -472,6 +495,7 @@ $endpoints = @()
 # azure.frontDoor.dormant (set-demo-frontdoor.ps1 -Dormant): between classes the profile, the one part with a monthly
 # fee, is deleted; the capability stays declared, and the endpoints come back when the system is awake again.
 $dormant = [bool] $frontDoor['dormant']
+$environmentEntry = $system.environments | Where-Object { $_.name -eq $environmentName } | Select-Object -First 1
 if (@($applied.capabilities.value) -contains 'frontdoor' -and -not $dormant) {
     if (-not $frontDoor['profile']) {
         Fail-Step "Environment $environmentName has capability frontdoor, but system.json has no azure.frontDoor: run the seed with azure.frontDoor in the demo file, and add its output to system.json."
@@ -494,6 +518,10 @@ if (@($applied.capabilities.value) -contains 'frontdoor' -and -not $dormant) {
             profileName     = @{ value = [string] $frontDoor.profile }
             tags            = @{ value = @{ system = $slug; environment = $environmentName; purpose = 'demo' } }
             deployables     = @{ value = $edgeDeployables }
+            # Front Door probes every origin from every edge location. Every 10 seconds on a Basic plan
+            # (system.planSku for the tier); every 30 on the Free plan, where the probes' answers count against the
+            # plan's 165 MB of outbound data a day.
+            probeIntervalInSeconds = @{ value = $(if ($system.system.ContainsKey('planSku') -and $system.system.planSku[[string] $environmentEntry.tier] -eq 'B1') { 10 } else { 30 }) }
         }
     }
     $edgeParametersFile = Join-Path ([IO.Path]::GetTempPath()) "stack-$([Guid]::NewGuid().ToString('N')).json"
@@ -518,8 +546,14 @@ elseif ($frontDoor['resourceGroup']) {
         # that is still there afterwards is a failure.
         $PSNativeCommandUseErrorActionPreference = $false
         az stack group delete --name $edgeStackName --resource-group ([string] $frontDoor.resourceGroup) --action-on-unmanage deleteResources --yes --output none 2>$null
-        az stack group show --name $edgeStackName --resource-group ([string] $frontDoor.resourceGroup) --output none 2>$null
-        $stillThere = $LASTEXITCODE -eq 0
+        # A delete refused because the other one is under way leaves the stack there for a few minutes more: wait for
+        # it to go before calling it a failure (cmdemo2, 2026-10-06: the stack was gone two minutes after this step failed).
+        $stillThere = $true
+        foreach ($attempt in 1..30) {
+            az stack group show --name $edgeStackName --resource-group ([string] $frontDoor.resourceGroup) --output none 2>$null
+            if ($LASTEXITCODE -ne 0) { $stillThere = $false; break }
+            Start-Sleep -Seconds 20
+        }
         $PSNativeCommandUseErrorActionPreference = $true
         if ($stillThere) { Fail-Step "Stack $edgeStackName could not be removed from $($frontDoor.resourceGroup)." }
         Write-Highlight "Front Door endpoints of $environmentName removed ($(if ($dormant) { 'the system is dormant' } else { 'capability frontdoor is off' }))."
@@ -532,7 +566,10 @@ elseif ($frontDoor['resourceGroup']) {
 # A little longer than the apply: the stack removes replaced apps at its end, and the new ones take over.
 Start-Sleep -Seconds 30
 $downtime = Stop-AvailabilityProbe -Handle $probe
-if ($downtime -gt 0) {
+if ($downtime -gt 0 -and $resizedPlans.Count -gt 0) {
+    Write-Highlight "The plan size changed ($($resizedPlans -join ', ')): Azure restarts the apps on a resized plan, so the $downtime downtime period(s) above are that restart, measured and expected, and do not fail the apply."
+}
+elseif ($downtime -gt 0) {
     Fail-Step "The apply of $stackName caused $downtime downtime period(s); the timeline is above."
 }
 

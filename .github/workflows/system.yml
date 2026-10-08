@@ -39,7 +39,7 @@ env:
 
 jobs:
   octopus-apply:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: octopus
     steps:
       - uses: actions/checkout@v6.0.1
@@ -50,7 +50,7 @@ jobs:
           server: ${{ vars.OCTOPUS_URL }}
           service_account_id: ${{ vars.OCTOPUS_SERVICE_ACCOUNT_ID }}
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: "1.16.4"
           terraform_wrapper: false
@@ -86,7 +86,7 @@ jobs:
 
   system-release:
     needs: octopus-apply
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: octopus
     steps:
       - uses: actions/checkout@v6.0.1
@@ -112,13 +112,13 @@ jobs:
           service_account_id: ${{ vars.OCTOPUS_SERVICE_ACCOUNT_ID }}
 
       - name: Push the package
-        uses: OctopusDeploy/push-package-action@v3
+        uses: OctopusDeploy/push-package-action@v4
         with:
           packages: ${{ steps.package.outputs.file }}
           overwrite_mode: IgnoreIfExists
 
       - name: Create the release
-        uses: OctopusDeploy/create-release-action@v3
+        uses: OctopusDeploy/create-release-action@v4
         with:
           project: ${{ steps.package.outputs.project }}
           release_number: ${{ steps.package.outputs.version }}

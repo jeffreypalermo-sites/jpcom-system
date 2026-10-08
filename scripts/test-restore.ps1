@@ -11,7 +11,9 @@
     octopus/runbooks.tf inlines this file). Capability CAP-060. It restores the database to 15 minutes ago as
     <database>-restoretest-<time> (serverless, 1 vCore, local backup redundancy: a few cents for the minutes it
     exists), opens the server to the worker, checks that the copy has the same user tables as the source and data in
-    them, and always deletes the copy and the firewall rule.
+    them, and always deletes the copy and the firewall rule. The copy is created with the tags of the source database
+    (system, environment, tier, purpose: infra/main.bicep), so that its cost counts for this environment and not for
+    what the environments share (scripts/write-cost.ps1 goes by the tag "environment").
 #>
 [CmdletBinding()]
 param()
@@ -44,6 +46,11 @@ if (-not $source.earliestRestoreDate -or [datetimeoffset] $source.earliestRestor
     Fail-Step "$database has no backup older than 15 minutes yet (earliest restore point: $($source.earliestRestoreDate))."
 }
 $copy = "$database-restoretest-$($point.ToString('yyyyMMddHHmm'))"
+# The source's tags for the copy, as the restore command takes them (key=value each); none when the source has none.
+$tagArguments = @()
+if ($source['tags'] -and $source.tags.Count -gt 0) {
+    $tagArguments = @('--tags') + @($source.tags.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" })
+}
 $ruleName = "octopus-restoretest-$(([string] $OctopusParameters['Octopus.Task.Id']) -replace '[^A-Za-z0-9-]', '-')"
 
 Install-Module -Name SqlServer -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop | Out-Null
@@ -73,7 +80,7 @@ try {
     Write-Host "Restoring $database to $($point.ToString('u')) as $copy"
     az sql db restore --resource-group $resourceGroup --server $server --name $database --dest-name $copy `
         --time $point.ToString('yyyy-MM-ddTHH:mm:ssZ') --edition GeneralPurpose --family Gen5 --capacity 1 --compute-model Serverless `
-        --auto-pause-delay 60 --min-capacity 0.5 --backup-storage-redundancy Local --output none
+        --auto-pause-delay 60 --min-capacity 0.5 --backup-storage-redundancy Local @tagArguments --output none
     Write-Host "Restored in $([int] $clock.Elapsed.TotalMinutes) minutes"
 
     $workerIp = (Invoke-RestMethod -Uri 'https://api.ipify.org').ToString().Trim()

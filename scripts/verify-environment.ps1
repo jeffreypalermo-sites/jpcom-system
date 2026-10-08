@@ -13,6 +13,11 @@
     database resuming from auto-pause; a revision that cannot start (crash loop, image pull failure, failed
     provisioning) fails the step at once, with the container's last console lines. A static site (hosting
     "staticwebapp") has no revision and no plan to ask: only its URL is polled.
+
+    A deployable that brings its own runtime (hosting "own") is not in the stack and verifies itself, in its own
+    project (scripts/invoke-application.ps1). "Verify environment" therefore passes over a stack that lists no
+    deployable where the system has such an application (variable System.OwnDeployables) and the stack is to create
+    none in this environment (System.StackDeployables); a stack that lists none anywhere else fails the step.
 #>
 [CmdletBinding()]
 param()
@@ -40,14 +45,18 @@ $deployables = @($stack.outputs.deployables.value | Where-Object { -not $only -o
 if ($stack.outputs.ContainsKey('standby')) {
     $deployables += @($stack.outputs.standby.value | Where-Object { -not $only -or $_.name -eq $only })
 }
-if ($deployables.Count -eq 0 -and -not $only) {
-    # Every deployable of the system brings its own runtime (hosting "own"): infra/ creates none, and each verifies
-    # itself in its own project.
-    Write-Highlight "Stack stack-$slug-$environmentName creates no deployable: each application verifies its own."
-    return
-}
 if ($deployables.Count -eq 0) {
-    Fail-Step "Stack stack-$slug-$environmentName lists no deployable named $only."
+    # A deployable that brings its own runtime (hosting "own") is not in the stack: infra/ creates nothing for it, and
+    # it verifies itself in its own project. Only a system that has one has these two variables (octopus/variables.tf):
+    # the names of those applications, and the names of the deployables this environment's stack creates. An empty
+    # stack is right only where the first names an application and the second names none.
+    $own = @(([string] $OctopusParameters['System.OwnDeployables']) -split ',' | Where-Object { $_ })
+    $expected = @(([string] $OctopusParameters['System.StackDeployables']) -split ',' | Where-Object { $_ })
+    if (-not $only -and $own.Count -gt 0 -and $expected.Count -eq 0) {
+        Write-Highlight "Stack stack-$slug-$environmentName creates no deployable: what runs in $environmentName brings its own runtime ($($own -join ', ')), and step 'Verify deployable' of each one's own project verifies it."
+        return
+    }
+    Fail-Step "Stack stack-$slug-$environmentName lists no deployable$(if ($only) { " named $only" })."
 }
 
 # A deployable project verifies right after its update step, before the stack is applied again: the health path of

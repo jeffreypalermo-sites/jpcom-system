@@ -19,6 +19,8 @@
          (0.5 GB per browser) and at 16; a worker starts a browser only for a test, so a small set needs no other
          sizing. The run reports how many tests actually ran at once.
       3. Always, even after failures: ZDataLoader once more, so the environment is left with good test data.
+    A test that runs for more than five minutes is a hung test: the test platform then ends the run and names the
+    test (--blame-hang-timeout), so a hang fails the deployment in minutes and does not hold the environment's queue.
     The test results (TRX) are attached to the deployment as artifacts. A failed test fails the deployment, which
     keeps the release from being promoted; the version stays pinned, because it is what runs. A run in which no test
     ran fails too: a filter that matches nothing, or tests that all skip themselves, prove nothing.
@@ -105,6 +107,7 @@ try {
     $PSNativeCommandUseErrorActionPreference = $false
     dotnet test $testAssembly @selection --settings (Join-Path $package 'AcceptanceTests.runsettings') `
         --logger 'trx;LogFileName=acceptance.trx' --logger 'console;verbosity=minimal' --results-directory $results `
+        --blame-hang-timeout 5m --blame-hang-dump-type none `
         -- "NUnit.NumberOfTestWorkers=$workers"
     $testsExit = $LASTEXITCODE
     $PSNativeCommandUseErrorActionPreference = $true
@@ -120,7 +123,8 @@ finally {
     $clock.Restart()
     $PSNativeCommandUseErrorActionPreference = $false
     dotnet test $loaderAssembly --filter 'FullyQualifiedName~ZDataLoader' `
-        --logger 'trx;LogFileName=load-data.trx' --logger 'console;verbosity=minimal' --results-directory $results
+        --logger 'trx;LogFileName=load-data.trx' --logger 'console;verbosity=minimal' --results-directory $results `
+        --blame-hang-timeout 5m --blame-hang-dump-type none
     $loadExit = $LASTEXITCODE
     $PSNativeCommandUseErrorActionPreference = $true
     Write-Host "Test data reloaded (ZDataLoader) in $([int] $clock.Elapsed.TotalSeconds) s, exit code $loadExit"
@@ -130,7 +134,7 @@ if ($loadExit -ne 0) {
     Fail-Step 'ZDataLoader could not reload the test data (above).'
 }
 if ($testsExit -ne 0) {
-    Fail-Step "Acceptance tests failed against $baseUrl (results attached as an artifact); the test data was reloaded."
+    Fail-Step "Acceptance tests failed against $baseUrl (results attached as an artifact; a test that ran for more than five minutes ends the run and is named above); the test data was reloaded."
 }
 if ($executed -eq 0) {
     Fail-Step "No acceptance test ran against $baseUrl ($scope): none matched, or every one skipped itself, and a run that tests nothing must not pass; the test data was reloaded."

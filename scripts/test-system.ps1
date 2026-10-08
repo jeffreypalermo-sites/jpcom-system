@@ -12,6 +12,8 @@
 
     - The slug, environment and deployable names follow the naming rules every template relies on.
     - Each deployable's hosting is one the templates know: containerapp (the default), appservice or staticwebapp.
+    - With a container app among the deployables, azure.registry names the system's registry (the seed creates one
+      only for a system that needs it).
     - Each environment has a tier (nonprod or prod), a runtime identity from the seed and a folder
       environments/<env>/ with a versions.json object whose keys are deployables. A nodes.json there, which the
       deployments of the deployables with hosting own write, names only such deployables, each with at least one
@@ -24,7 +26,7 @@
       without the system's service account; octopus.operator, where present, is a username.
     - A container deployable's own keys, where present, have the shape infra/ and octopus/ read: environments (the
       environments it exists in, the first one among them; a static site may name them too), alwaysOn and database
-      (true or false), cpu, settings and
+      (true or false), alwaysOnEnvironments (environments of the deployable, with alwaysOn true), cpu, settings and
       environmentSettings (environment variable to text), urlSetting, and secrets (name, env, generate; never a value).
     - azure.appEnvironment, where present (the system owns its Container Apps environment), has the seed's shape, and
       then no environment chooses a placement of its own and no deployable runs on App Service.
@@ -133,6 +135,8 @@ foreach ($deployable in @($system.deployables)) {
 #                        lifecycle has only these); the system's first environment is among them, because every
 #                        release starts there
 #   alwaysOn             true: one replica that never scales to zero (a background service)
+#   alwaysOnEnvironments the environments in which alwaysOn applies (in the others the app scales to zero); left
+#                        out: every environment the deployable exists in
 #   database             false: no SQL connection string
 #   cpu                  0.5, 1, 1.5 or 2 vCPU, with twice as many GiB (the environment's appCpu when left out)
 #   settings             { "<environment variable>": "<text>" }, in every environment
@@ -142,7 +146,7 @@ foreach ($deployable in @($system.deployables)) {
 #                        <deployable>-<name>. The operator writes its value to the vault (the kit's
 #                        set-demo-secret.ps1); with "generate": true the deployment generates it. Never a value here.
 $environmentNamesDeclared = @($system.environments | ForEach-Object { [string] $_.name })
-$containerKeys = @('environments', 'alwaysOn', 'database', 'cpu', 'settings', 'environmentSettings', 'urlSetting', 'secrets')
+$containerKeys = @('environments', 'alwaysOn', 'alwaysOnEnvironments', 'database', 'cpu', 'settings', 'environmentSettings', 'urlSetting', 'secrets')
 $variableName = '^[A-Za-z_][A-Za-z0-9_]{0,254}$'
 # Set by the template itself, or by Container Apps.
 $reservedVariables = @('ConnectionStrings__SqlConnectionString', 'OTEL_SERVICE_NAME', 'APPLICATIONINSIGHTS_CONNECTION_STRING')
@@ -190,6 +194,13 @@ foreach ($deployable in @($system.deployables)) {
     foreach ($key in 'alwaysOn', 'database') {
         if ($deployable.ContainsKey($key)) { Test-Rule "deployable $name $key" ($deployable[$key] -is [bool]) 'true or false' }
     }
+    if ($deployable.ContainsKey('alwaysOnEnvironments')) {
+        $kept = $deployable.alwaysOnEnvironments
+        $valid = $kept -is [array] -and $kept.Count -gt 0 -and @($kept | Where-Object { $_ -isnot [string] -or $here -cnotcontains $_ }).Count -eq 0 -and
+            @($kept | Select-Object -Unique).Count -eq $kept.Count
+        Test-Rule "deployable $name alwaysOnEnvironments" $valid "a list of the deployable's environments, each once: $($here -join ', ')"
+        Test-Rule "deployable $name alwaysOnEnvironments with alwaysOn" ($deployable['alwaysOn'] -eq $true) 'alwaysOnEnvironments says where "alwaysOn": true applies: it needs that key'
+    }
     if ($deployable.ContainsKey('cpu')) {
         Test-Rule "deployable $name cpu" ($deployable.cpu -is [string] -and @('0.5', '1', '1.5', '2') -ccontains $deployable.cpu) 'one of "0.5", "1", "1.5", "2" (vCPU, as text; the memory is twice as many GiB)'
     }
@@ -236,6 +247,11 @@ foreach ($deployable in @($system.deployables)) {
     Test-Rule "deployable $name environment variables have one source" ($twice.Count -eq 0) "set by more than one of settings, urlSetting and secrets: $($twice -join ', ')"
 }
 
+# A container app's image comes from the system's registry (azure.registry { name, loginServer }, from the seed). A
+# system whose deployables all run on App Service or Static Web Apps has no registry, and no azure.registry.
+if (@($system.deployables | Where-Object { -not $_.ContainsKey('hosting') -or $_.hosting -ceq 'containerapp' }).Count -gt 0) {
+    Test-Rule 'azure.registry' ($system.azure.ContainsKey('registry') -and $system.azure.registry -is [Collections.IDictionary] -and $system.azure.registry['name'] -and $system.azure.registry['loginServer']) 'a container app needs azure.registry { name, loginServer }: the seed creates the registry for a system with a container app (new-demo-seed.ps1)'
+}
 # A static site is the dashboard of the system's apps: the first deployable is the app the checks and the operator
 # scripts ask, so it is never the static site.
 if (@($system.deployables).Count -gt 0) {
@@ -314,7 +330,7 @@ foreach ($environment in $system.environments) {
     if ($elsewhere.Count -gt 0) { Test-Rule "environment $name versions.json pins only its own deployables" $false "$($elsewhere -join ', ') do not exist in $name (deployables[].environments)" }
 
     # nodes.json: what each deployable with hosting "own" reported as its nodes when it was last verified here. The
-    # step "Verify deployable" writes it (scripts/invoke-application.ps1, which checks every field); this rule keeps a
+    # step "Record nodes" writes it (scripts/record-nodes.ps1, which checks every field); this rule keeps a
     # change made by pull request from breaking the dashboard, which reads it (scripts/deploy-staticwebapp.ps1).
     $nodesFile = Join-Path $Root 'environments' $name 'nodes.json'
     if (Test-Path -LiteralPath $nodesFile) {

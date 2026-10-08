@@ -4,7 +4,8 @@
 // main.bicep hands each deployable over complete: name, port, healthPath, and
 //   cpu          vCPU of its container: 0.5, 1, 1.5 or 2; Consumption pairs it with twice as many GiB (the lookup
 //                fails for any other value). The environment's appCpu unless the deployable has a cpu of its own
-//   alwaysOn     true: exactly one replica, never zero (a background service whose timers must keep running)
+//   alwaysOn     true: exactly one replica, never zero (a background service whose timers must keep running);
+//                main.bicep hands over false in an environment that alwaysOnEnvironments leaves out
 //   database     false: no SQL connection string (the app has no database)
 //   settings     [{ name, value }]: plain environment variables
 //   urlSetting   the environment variable that gets the app's own public address (https://<fqdn>), or ''

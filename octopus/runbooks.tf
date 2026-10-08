@@ -3,12 +3,21 @@
 #                         only in a system with a database
 #   Rotate SQL password   monthly, every environment: new administrator password through Key Vault (CAP-056); only
 #                         in a system with a database
+#   Health report         hourly, every environment: asks every node the environment's stack reports and its public
+#                         address, one line each; the last run per environment is the system's health in Octopus
+#                         (CAP-076). A deployable with hosting "own" is no node of the stack: the report asks the
+#                         nodes its application recorded (environments/<env>/nodes.json, read from the repository's
+#                         public address, without a token), once an hour, which wakes a node that scaled to zero; a
+#                         record with "healthReport": false is left alone. An environment with nothing to ask says
+#                         so and succeeds
 #   Failover test         only with a standby region (environments[].standbyLocation): stops the primary app and times
 #                         the Front Door endpoint's switch to the standby and back (CAP-047); it may run in every
 #                         environment with a standby, and is scheduled monthly in the nonprod ones
 #   Restart apps          only with a deployable that declares secrets (deployables[].secrets): restarts the container
-#                         apps that read secrets of their own, so they read the values the operator wrote to the vault;
-#                         on demand in every environment, never on a schedule
+#                         apps that read secrets of their own and waits until each answers its health path. A value
+#                         the operator wrote to the vault reaches an app when Container Apps reads it, within 30
+#                         minutes of the write, not with the restart: the runbook waits that long and says what it
+#                         saw. On demand in every environment, never on a schedule
 # A schedule runs the runbook's published snapshot; the system workflow publishes one after every apply.
 # The instance's task cap is shared by every system on it, so each system's schedules start at its own time: an offset
 # of 0 to 239 minutes derived from the slug (the same on every apply), after 07:00 UTC for the restore test and after
@@ -37,7 +46,7 @@ locals {
   restart_runbook = { for key, runbook in {
     restart_apps = {
       name         = "Restart apps"
-      description  = "Restarts the latest revision of every container app that reads secrets of its own from the vault (${join(", ", local.secret_deployables)}), so it reads their current values, and checks its health (scripts/restart-apps.ps1)."
+      description  = "Restarts the latest revision of every container app that reads secrets of its own from the vault (${join(", ", local.secret_deployables)}) and waits until it answers its health path. Container Apps reads a changed vault secret within 30 minutes of the write and restarts the revision itself; the restart does not fetch it, so the run can take that long, and says when an app may still hold the earlier value (scripts/restart-apps.ps1)."
       script       = "restart-apps.ps1"
       environments = [for name, e in local.environments : name]
       scheduled_in = []
@@ -45,6 +54,16 @@ locals {
       schedule     = ""
     }
   } : key => runbook if length(local.secret_deployables) > 0 }
+  health_runbook = {
+    health_report = {
+      name         = "Health report"
+      description  = "Asks every node of the environment and its public address whether it answers, one line each with region, time and version; fails when one is not healthy (scripts/report-health.ps1)."
+      script       = "report-health.ps1"
+      environments = [for name, e in local.environments : name]
+      cron         = "0 ${local.schedule_minute} * * * *"
+      schedule     = "Hourly health report"
+    }
+  }
   # The database runbooks exist only in a system with a database: a container deployable that uses one (database is
   # true unless it says false) or an App Service deployable (which shares it), the rule of infra/main.bicep. An app of
   # the person's own (app.source "repository") has none, so there is nothing to restore or rotate.
@@ -70,7 +89,7 @@ locals {
       schedule     = "Monthly SQL password rotation"
     }
   } : key => runbook if local.has_database }
-  runbooks = merge(local.failover_runbook, local.restart_runbook, local.database_runbooks)
+  runbooks = merge(local.failover_runbook, local.restart_runbook, local.health_runbook, local.database_runbooks)
   # A runbook is scheduled in the environments it may run in, unless it names fewer (scheduled_in); none: no trigger.
   scheduled_runbooks = { for key, r in local.runbooks : key => merge(r, { scheduled_in = try(r.scheduled_in, r.environments) }) if length(try(r.scheduled_in, r.environments)) > 0 }
 }
@@ -128,6 +147,9 @@ resource "octopusdeploy_project_scheduled_trigger" "runbook" {
   name        = each.value.schedule
   description = "${each.value.name}: ${each.value.description}"
   timezone    = "UTC"
+  # While the system is dormant (azure.frontDoor.dormant) nothing asks the apps on a schedule: a call an hour wakes
+  # each app, its message bus polls the database, and the database then never pauses.
+  is_disabled = each.key == "health_report" && try(local.system.azure.frontDoor.dormant, false)
 
   cron_expression_schedule {
     cron_expression = each.value.cron
