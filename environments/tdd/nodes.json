@@ -3,6 +3,7 @@
     "healthPath": "/_health/ready",
     "alivePath": "/_health/live",
     "versionPath": "/_version",
+    "healthReport": false,
     "nodes": [
       {
         "name": "ca-jpcom-tdd-web-eus2",
