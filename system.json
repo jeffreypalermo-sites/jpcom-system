@@ -132,5 +132,13 @@
         "baseline"
       ]
     }
-  ]
+  ],
+  "github": {
+    "app": {
+      "id": 5241140,
+      "slug": "jpcom-system",
+      "clientId": "Iv23lif97QUtjIECNaP5",
+      "installationId": 169345900
+    }
+  }
 }
