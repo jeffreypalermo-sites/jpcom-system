@@ -1,0 +1,207 @@
+{
+  "generated": "2026-10-10T23:42:52Z",
+  "environments": [
+    {
+      "name": "tdd",
+      "deployables": [
+        {
+          "name": "web",
+          "version": "1.0.85",
+          "deployedAt": "2026-10-10T06:10:37Z",
+          "signedOffBy": null,
+          "reason": null,
+          "commit": "64c9210f92b2d43d248bcf6602de013d065d844d",
+          "commitAt": "2026-10-10T05:42:01Z",
+          "leadTimeHours": 0.5,
+          "behindFirst": {
+            "versions": 0,
+            "days": 0
+          },
+          "deploymentsLast7Days": 36,
+          "failedLast7Days": 3,
+          "releaseUrl": "https://clearmeasure.octopus.app/app#/Spaces-375/projects/jpcom-web/deployments/releases/1.0.85"
+        },
+        {
+          "name": "dashboard",
+          "version": "1.0.4",
+          "deployedAt": "2026-10-08T14:00:50Z",
+          "signedOffBy": null,
+          "reason": null,
+          "commit": "55730436af393faeeb671e054f5c3048f716c28f",
+          "commitAt": "2026-10-08T12:39:46Z",
+          "leadTimeHours": 1.4,
+          "behindFirst": {
+            "versions": 0,
+            "days": 0
+          },
+          "deploymentsLast7Days": 5,
+          "failedLast7Days": 0,
+          "releaseUrl": "https://clearmeasure.octopus.app/app#/Spaces-375/projects/jpcom-dashboard/deployments/releases/1.0.4"
+        },
+        {
+          "name": "system",
+          "version": "1.0.22",
+          "deployedAt": "2026-10-08T18:31:39Z",
+          "signedOffBy": null,
+          "reason": null,
+          "commit": "64c50950ecceb0bf9c49e2193121e57192901fd8",
+          "commitAt": "2026-10-08T18:26:55Z",
+          "leadTimeHours": 0.1,
+          "behindFirst": {
+            "versions": 0,
+            "days": 0
+          },
+          "deploymentsLast7Days": 21,
+          "failedLast7Days": 1,
+          "releaseUrl": "https://clearmeasure.octopus.app/app#/Spaces-375/projects/jpcom-system/deployments/releases/1.0.22"
+        }
+      ],
+      "health": {
+        "last24Hours": {
+          "reports": 24,
+          "healthy": 24
+        },
+        "last7Days": {
+          "reports": 62,
+          "healthy": 62
+        },
+        "lastFailure": null
+      }
+    },
+    {
+      "name": "uat",
+      "deployables": [
+        {
+          "name": "web",
+          "version": "1.0.85",
+          "deployedAt": "2026-10-10T07:00:42Z",
+          "signedOffBy": "ai-ops",
+          "reason": "Jeffrey: Merge the logs. The Front Door access log is kept in uat (site PR 39, ADR-0023); uat is where Azure is first asked for the workspace and the diagnostic setting. Production waits for him",
+          "commit": "64c9210f92b2d43d248bcf6602de013d065d844d",
+          "commitAt": "2026-10-10T05:42:01Z",
+          "leadTimeHours": 1.3,
+          "behindFirst": {
+            "versions": 0,
+            "days": 0
+          },
+          "deploymentsLast7Days": 23,
+          "failedLast7Days": 3,
+          "releaseUrl": "https://clearmeasure.octopus.app/app#/Spaces-375/projects/jpcom-web/deployments/releases/1.0.85"
+        },
+        {
+          "name": "dashboard",
+          "version": "1.0.4",
+          "deployedAt": "2026-10-08T15:14:08Z",
+          "signedOffBy": "ai-ops",
+          "reason": "Deployed again: the Static Web Apps tool ended with exit code 1 in the deployment before (ServerTasks-11996848); tdd and prod passed",
+          "commit": "55730436af393faeeb671e054f5c3048f716c28f",
+          "commitAt": "2026-10-08T12:39:46Z",
+          "leadTimeHours": 2.6,
+          "behindFirst": {
+            "versions": 0,
+            "days": 0
+          },
+          "deploymentsLast7Days": 5,
+          "failedLast7Days": 1,
+          "releaseUrl": "https://clearmeasure.octopus.app/app#/Spaces-375/projects/jpcom-dashboard/deployments/releases/1.0.4"
+        },
+        {
+          "name": "system",
+          "version": "1.0.22",
+          "deployedAt": "2026-10-08T18:40:07Z",
+          "signedOffBy": "ai-ops",
+          "reason": "The system writes as its own GitHub App jpcom-system (jpcom-system pull request 28); green in tdd, capability check passed",
+          "commit": "64c50950ecceb0bf9c49e2193121e57192901fd8",
+          "commitAt": "2026-10-08T18:26:55Z",
+          "leadTimeHours": 0.2,
+          "behindFirst": {
+            "versions": 0,
+            "days": 0
+          },
+          "deploymentsLast7Days": 13,
+          "failedLast7Days": 1,
+          "releaseUrl": "https://clearmeasure.octopus.app/app#/Spaces-375/projects/jpcom-system/deployments/releases/1.0.22"
+        }
+      ],
+      "health": {
+        "last24Hours": {
+          "reports": 24,
+          "healthy": 24
+        },
+        "last7Days": {
+          "reports": 62,
+          "healthy": 62
+        },
+        "lastFailure": null
+      }
+    },
+    {
+      "name": "prod",
+      "deployables": [
+        {
+          "name": "web",
+          "version": "1.0.69",
+          "deployedAt": "2026-10-09T03:14:01Z",
+          "signedOffBy": "ai-ops",
+          "reason": "The Masthead look in Clear Measure colours, which Jeffrey chose (site PR 34, ADR-0019); 1.0.69 passed tdd and uat with the whole URL contract",
+          "commit": "2480e6de2a493137f62ad2cf96df03122886b089",
+          "commitAt": "2026-10-09T00:45:38Z",
+          "leadTimeHours": 2.5,
+          "behindFirst": {
+            "versions": 7,
+            "days": 1.7
+          },
+          "deploymentsLast7Days": 16,
+          "failedLast7Days": 1,
+          "releaseUrl": "https://clearmeasure.octopus.app/app#/Spaces-375/projects/jpcom-web/deployments/releases/1.0.69"
+        },
+        {
+          "name": "dashboard",
+          "version": "1.0.4",
+          "deployedAt": "2026-10-08T14:09:01Z",
+          "signedOffBy": "ai-ops",
+          "reason": "Deployed again so that the topology names the dashboard build facts (system.json buildPath, jpcom-system pull request 25; CAP-079)",
+          "commit": "55730436af393faeeb671e054f5c3048f716c28f",
+          "commitAt": "2026-10-08T12:39:46Z",
+          "leadTimeHours": 1.5,
+          "behindFirst": {
+            "versions": 0,
+            "days": 0
+          },
+          "deploymentsLast7Days": 4,
+          "failedLast7Days": 0,
+          "releaseUrl": "https://clearmeasure.octopus.app/app#/Spaces-375/projects/jpcom-dashboard/deployments/releases/1.0.4"
+        },
+        {
+          "name": "system",
+          "version": "1.0.22",
+          "deployedAt": "2026-10-08T18:44:27Z",
+          "signedOffBy": "ai-ops",
+          "reason": "The system writes as its own GitHub App jpcom-system (jpcom-system pull request 28); green in tdd and uat",
+          "commit": "64c50950ecceb0bf9c49e2193121e57192901fd8",
+          "commitAt": "2026-10-08T18:26:55Z",
+          "leadTimeHours": 0.3,
+          "behindFirst": {
+            "versions": 0,
+            "days": 0
+          },
+          "deploymentsLast7Days": 11,
+          "failedLast7Days": 0,
+          "releaseUrl": "https://clearmeasure.octopus.app/app#/Spaces-375/projects/jpcom-system/deployments/releases/1.0.22"
+        }
+      ],
+      "health": {
+        "last24Hours": {
+          "reports": 24,
+          "healthy": 24
+        },
+        "last7Days": {
+          "reports": 62,
+          "healthy": 62
+        },
+        "lastFailure": null
+      }
+    }
+  ],
+  "failover": null
+}
