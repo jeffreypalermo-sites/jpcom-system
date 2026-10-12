@@ -1,6 +1,7 @@
 # The system pipeline. Every merge to main (except what a deployment records, a commit that changes only
-# environments/*/versions.json, the pin, or environments/*/nodes.json, the nodes an application with its own runtime
-# reported; and a documentation change under docs/ or in Markdown):
+# environments/*/versions.json, the pin, environments/*/nodes.json, the nodes an application with its own runtime
+# reported, or environments/*/database.json, the tables a deployment read from the database; and a documentation
+# change under docs/ or in Markdown):
 #   1. octopus-apply   configures Octopus from octopus/ and system.json (environments, lifecycle, accounts, projects)
 #   2. system-release  packages this commit as <slug>-system <version> and creates the release of <slug>-system;
 #                      the lifecycle deploys it to the first environment, which applies infra/ there.
@@ -18,6 +19,7 @@ on:
     paths-ignore:
       - "environments/*/versions.json"
       - "environments/*/nodes.json"
+      - "environments/*/database.json"
       - "**/*.md"
       - "docs/**"
   workflow_dispatch:

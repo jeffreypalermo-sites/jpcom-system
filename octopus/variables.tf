@@ -186,7 +186,8 @@ resource "octopusdeploy_variable" "azure_account" {
 # project "Apply environment" (the versions of versions.json), in a deployable's project "Pin version" and "Revert
 # pin" (the commit to versions.json), for a static site "Update deployable" (system.json and the recorded nodes)
 # and, for a deployable with hosting "own", "Record nodes" and "Record nodes after revert" (the commit to
-# nodes.json; they run nothing of the application's).
+# nodes.json; they run nothing of the application's) and, for a deployable that migrates the database, "Record
+# database schema" (the commit to database.json; it runs nothing of the application's either).
 # Octopus hands a variable scoped to steps to no other step and to no runbook. The steps that run an application's
 # own scripts ("Update deployable", "Verify deployable", "Revert deployable" and "Verify revert" of such a
 # deployable: scripts/invoke-application.ps1) are not among them, and neither are the steps that run an
@@ -203,6 +204,7 @@ locals {
         contains(keys(local.static_deployables), name) ? [octopusdeploy_process_step.deploy_staticwebapp[name].action_id] : [],
         contains(keys(local.storage_deployables), name) ? [octopusdeploy_process_step.deploy_storagewebsite[name].action_id] : [],
         contains(keys(local.own_deployables), name) ? [octopusdeploy_process_step.record_nodes[name].action_id, octopusdeploy_process_step.record_reverted_nodes[name].action_id] : [],
+        contains(keys(local.schema_deployables), name) ? [octopusdeploy_process_step.record_schema[name].action_id] : [],
       )
     }
   )
@@ -218,7 +220,7 @@ resource "octopusdeploy_variable" "github_token" {
   type            = "Sensitive"
   is_sensitive    = true
   sensitive_value = var.github_token
-  description     = "Reads environments/<env>/versions.json from main and, in deployable projects, commits the pin; step Record nodes of a deployable with hosting own commits its nodes (environments/<env>/nodes.json); the dashboard's deployment reads system.json and those nodes with it. Scoped to the steps that read it. From repository secret OCTOPUS_GITHUB_TOKEN."
+  description     = "Reads environments/<env>/versions.json from main and, in deployable projects, commits the pin; step Record nodes of a deployable with hosting own commits its nodes (environments/<env>/nodes.json) and step Record database schema the tables of the database (environments/<env>/database.json); the dashboard's deployment reads system.json and those nodes with it. Scoped to the steps that read it. From repository secret OCTOPUS_GITHUB_TOKEN."
 
   scope {
     actions = local.token_steps[each.key]

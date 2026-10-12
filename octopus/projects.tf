@@ -254,6 +254,30 @@ resource "octopusdeploy_process_step" "migrate" {
   }
 }
 
+# The tables of the database as they are after the migration and the seeder (columns, keys, references, row counts) go
+# to environments/<env>/database.json on main, which the dashboard's database view is drawn from (decision 0040). A
+# step of its own, as "Record nodes" is: it receives the GitHub credential (variables.tf, token_steps), has no package
+# and runs nothing of the application's; the names it reads from the database are text it checks before it commits
+# (scripts/record-database-schema.ps1). It reads now because the database is awake now.
+resource "octopusdeploy_process_step" "record_schema" {
+  for_each = local.schema_deployables
+
+  process_id     = octopusdeploy_process.deployable[each.key].id
+  name           = "Record database schema"
+  type           = "Octopus.AzurePowerShell"
+  worker_pool_id = local.worker_pool_id
+  container      = local.container
+
+  execution_properties = {
+    "Octopus.Action.Azure.AccountId"     = "#{Azure.Account}"
+    "Octopus.Action.RunOnServer"         = "true"
+    "Octopus.Action.Script.ScriptSource" = "Inline"
+    "Octopus.Action.Script.Syntax"       = "PowerShell"
+    "Octopus.Action.Script.ScriptBody"   = join("\n", [local.github_token_functions, file("${path.module}/../scripts/record-database-schema.ps1")])
+    "OctopusUseBundledTooling"           = "False"
+  }
+}
+
 # Outside the acceptance-test environments: the demo employees from the app's own seeder (scripts/seed-demo-employees.ps1),
 # an explicit test of the data loader assembly in the release's acceptance-test package. It only inserts what is missing,
 # so it runs on every deployment; in the acceptance-test environments ZDataLoader loads the same employees.
@@ -764,6 +788,7 @@ resource "octopusdeploy_process_steps_order" "deployable" {
     contains(keys(local.migrated_deployables), each.key) ? [octopusdeploy_process_step.migrate[each.key].id] : [],
     contains(keys(local.tested_deployables), each.key) ? [octopusdeploy_process_step.prepare_tests[each.key].id] : [],
     contains(keys(local.seeded_deployables), each.key) ? [octopusdeploy_process_step.seed_demo_employees[each.key].id] : [],
+    contains(keys(local.schema_deployables), each.key) ? [octopusdeploy_process_step.record_schema[each.key].id] : [],
     contains(keys(local.container_deployables), each.key) ? [octopusdeploy_process_step.update[each.key].id] : [],
     contains(keys(local.appservice_deployables), each.key) ? [octopusdeploy_process_step.deploy_appservice[each.key].id] : [],
     contains(keys(local.static_deployables), each.key) ? [octopusdeploy_process_step.deploy_staticwebapp[each.key].id] : [],
