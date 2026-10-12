@@ -19,7 +19,8 @@ param appEnvironments array
 resource deploy 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
   name: 'id-${slug}-deploy-${tier}'
   location: location
-  tags: tags
+  // The environments it deploys, as a list: the runtime diagram draws it in each of them.
+  tags: union(tags, { environment: join(appEnvironments, ',') })
 }
 
 // One federated credential at a time: Azure refuses concurrent writes to the credentials of one identity.

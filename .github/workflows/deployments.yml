@@ -1,5 +1,8 @@
 # Deployments in flight, for every dashboard: scripts/write-deployments.ps1 reads the system's Octopus space once and
-# writes deployments.json: what is queued, running, stopped for a sign-off, and what ended in the last half hour. The
+# writes deployments.json: what is queued, running, stopped for a sign-off, and what ended in the last half hour; and
+# what a dashboard says in words: what a deployment waits for and who is responsible, who started it, the last
+# deployment that ended in each environment, and the deployment freezes that cover the system. A part this account
+# may not read (freezes belong to the Octopus instance) fails nothing: the file names it in "missing". The
 # system reads Octopus; no application does for itself. The file is on branch "deployments": one commit, replaced
 # (force-pushed) by a run that finds a change, so main gets no commits and the branch no history. Dashboards read it
 # from the browser at https://raw.githubusercontent.com/<org>/<repository>/deployments/deployments.json (the

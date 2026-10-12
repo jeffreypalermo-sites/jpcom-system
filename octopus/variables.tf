@@ -132,7 +132,22 @@ locals {
     } if length(local.secret_deployables) > 0
   ]
 
-  string_variables = { for v in concat(local.shared_variables, local.deployable_variables, local.secret_variables, local.test_variables, local.loader_variables, local.own_variables, local.middle_name_variables, local.health_path_variables) : v.key => v }
+  # Availability.TailSeconds, per environment, in the projects of the deployables: environments[].availabilityTailSeconds,
+  # the seconds the step "Update deployable" keeps measuring availability after the new revision is ready. Only in an
+  # environment that declares it; the step measures 30 seconds where the variable is absent.
+  tail_variables = flatten([
+    for name, e in local.environments : [
+      for deployable, project in octopusdeploy_project.deployable : {
+        key         = "${deployable}-availability-tail-${name}"
+        project     = project.id
+        name        = "Availability.TailSeconds"
+        value       = tostring(e.availabilityTailSeconds)
+        environment = name
+      }
+    ] if try(e.availabilityTailSeconds, null) != null
+  ])
+
+  string_variables = { for v in concat(local.shared_variables, local.deployable_variables, local.secret_variables, local.test_variables, local.loader_variables, local.own_variables, local.middle_name_variables, local.health_path_variables, local.tail_variables) : v.key => v }
 }
 
 resource "octopusdeploy_variable" "string" {
@@ -186,6 +201,7 @@ locals {
       for name in keys(local.deployables) : name => concat(
         [octopusdeploy_process_step.pin[name].action_id, octopusdeploy_process_step.revert_pin[name].action_id],
         contains(keys(local.static_deployables), name) ? [octopusdeploy_process_step.deploy_staticwebapp[name].action_id] : [],
+        contains(keys(local.storage_deployables), name) ? [octopusdeploy_process_step.deploy_storagewebsite[name].action_id] : [],
         contains(keys(local.own_deployables), name) ? [octopusdeploy_process_step.record_nodes[name].action_id, octopusdeploy_process_step.record_reverted_nodes[name].action_id] : [],
       )
     }

@@ -67,6 +67,16 @@ $PSNativeCommandArgumentPassing = 'Standard'
 $PSNativeCommandUseErrorActionPreference = $true
 $ProgressPreference = 'SilentlyContinue'
 
+# An Azure step can drop the result message of Fail-Step (exit code 255, no reason): the reason is a plain line too.
+$octopusFailStep = if (Test-Path -LiteralPath function:Fail-Step) { ${function:Fail-Step} } else { $null }
+function Fail-Step {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseApprovedVerbs', '')]
+    param([string] $Message)
+    Write-Host $Message
+    if ($octopusFailStep) { & $octopusFailStep $Message }
+    exit -1
+}
+
 # Every step starts in a fresh worker container. The Azure CLI writes progress spinners and, when it installs Bicep,
 # a WARNING line to stderr, which Octopus logs as errors ("SuccessWithWarning"): turn both off.
 $env:AZURE_CORE_DISABLE_PROGRESS_BAR = 'true'
@@ -320,7 +330,7 @@ function Read-NodeRecord {
 
 $nodes = [Collections.Generic.List[hashtable]]::new()
 foreach ($entry in @($outputs.deployables.value)) {
-    $nodes.Add(@{ Name = [string] $entry.name; Where = "$($entry['region'] ?? 'home region'), primary"; Url = ([string] $entry.url).TrimEnd('/'); Static = $entry['hosting'] -eq 'staticwebapp' })
+    $nodes.Add(@{ Name = [string] $entry.name; Where = "$($entry['region'] ?? 'home region'), primary"; Url = ([string] $entry.url).TrimEnd('/'); Static = $entry['hosting'] -in @('staticwebapp', 'storagewebsite'); Unreleased = $entry['hosting'] -eq 'storagewebsite' -and -not $entry['version'] })
 }
 foreach ($entry in @(if ($outputs.ContainsKey('standby')) { $outputs.standby.value })) {
     $nodes.Add(@{ Name = [string] $entry.name; Where = "$($entry.region), standby"; Url = ([string] $entry.url).TrimEnd('/'); Static = $false })
@@ -404,6 +414,7 @@ if ($nodes.Count -eq 0 -and $unread.Count -eq 0) {
 $minutes = 40
 $started = Get-Date
 $unhealthy = 0
+$unreleased = 0
 $asked = 0
 $late = [Collections.Generic.List[string]]::new()
 foreach ($node in $nodes) {
@@ -430,6 +441,13 @@ foreach ($node in $nodes) {
     }
     $path = if ($node.Static) { '/' } else { '/alive' }
     $answer = Get-Answer -Uri "$($node.Url)$path"
+    if ($node['Unreleased'] -and $answer.Status -ne 200) {
+        # A storage website serves nothing before its first release, and its stack knew of none here.
+        $asked--
+        $unreleased++
+        Write-Highlight "No release  $($node.Name) in ${environmentName}, $($node.Where): $(if ($answer.Status) { "HTTP $($answer.Status)" } else { 'no answer' }), and its stack knew no release of it when last applied  $($node.Url)"
+        continue
+    }
     $note = ''
     if (-not $node.Static -and $answer.Status -eq 404) {
         # No release yet: the platform's default page answers, and the app's own paths do not exist.
@@ -444,7 +462,7 @@ foreach ($node in $nodes) {
     if ($healthy) { Write-Highlight $line } else { Write-Warning $line }
 }
 
-$dashboard = @($outputs.deployables.value | Where-Object { $_['hosting'] -eq 'staticwebapp' }) | Select-Object -First 1
+$dashboard = @($outputs.deployables.value | Where-Object { $_['hosting'] -in 'staticwebapp', 'storagewebsite' }) | Select-Object -First 1
 if ($dashboard) {
     Write-Highlight "Live view of every node of every environment: $($dashboard.url)"
 }
@@ -461,4 +479,4 @@ if ($found.Count -gt 0) {
     $text = $found -join '; '
     Fail-Step "$($text.Substring(0, 1).ToUpperInvariant())$($text.Substring(1)).$(if ($unhealthy -eq 0 -and $asked -gt 0) { " The $asked node(s) that were asked are healthy." })"
 }
-Write-Highlight "All $($nodes.Count) node(s) of $environmentName are healthy."
+Write-Highlight "All $($nodes.Count - $unreleased) node(s) of $environmentName are healthy$(if ($unreleased -gt 0) { "; $unreleased storage website(s) without a release yet" })."

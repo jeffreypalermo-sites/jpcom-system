@@ -8,6 +8,7 @@
 //                main.bicep hands over false in an environment that alwaysOnEnvironments leaves out
 //   database     false: no SQL connection string (the app has no database)
 //   settings     [{ name, value }]: plain environment variables
+//                (ownSettings adds to them what the system's own module returns for the deployable, infra/own/main.bicep)
 //   urlSetting   the environment variable that gets the app's own public address (https://<fqdn>), or ''
 //   secrets      [{ name, env, vaultName }]: environment variable <env> from the vault secret <vaultName>, as a
 //                reference (the value never passes through the deployment), read by the deployable's own identity
@@ -38,6 +39,10 @@ param appNameSuffix string = ''
 param location string
 param tags object
 param deployables array
+
+@description('Settings the system\'s own module returns (infra/own/main.bicep), by deployable and then by name; each becomes an environment variable of that deployable\'s app, after its settings of system.json.')
+param ownSettings object = {}
+
 param versions object
 param registryServer string
 param identityResourceId string
@@ -46,6 +51,9 @@ param connectionStringSecretUri string
 param vaultUri string
 @description('Application Insights connection string when the environment has capability "telemetry" (not a secret: it identifies where to send telemetry).')
 param applicationInsightsConnectionString string = ''
+
+@description('Origins whose pages may read the apps\' answers (CORS), GET only and without credentials; empty: no CORS policy. main.bicep passes * when the system has a dashboard, whose page probes each app\'s health path from the browser while it shows the app.')
+param corsAllowedOrigins array = []
 
 var placeholderImage = 'mcr.microsoft.com/k8se/quickstart:latest'
 var placeholderPort = 80
@@ -115,6 +123,14 @@ resource apps 'Microsoft.App/containerApps@2025-01-01' = [
           targetPort: empty(versions[?d.name] ?? '') ? placeholderPort : d.port
           transport: express ? 'http' : 'auto'
           allowInsecure: false
+          ...(empty(corsAllowedOrigins)
+            ? {}
+            : {
+                corsPolicy: {
+                  allowedOrigins: corsAllowedOrigins
+                  allowedMethods: ['GET']
+                }
+              })
         }
         registries: [
           {
@@ -166,6 +182,7 @@ resource apps 'Microsoft.App/containerApps@2025-01-01' = [
               ],
               telemetryEnv,
               d.settings,
+              map(items(ownSettings[?d.name] ?? {}), s => { name: s.key, value: string(s.value) }),
               empty(d.urlSetting)
                 ? []
                 : [

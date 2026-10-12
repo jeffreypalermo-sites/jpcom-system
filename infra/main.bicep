@@ -87,6 +87,7 @@ var sqlServerFqdn = '${sqlServerName}${az.environment().suffixes.sqlServerHostna
 // schema: the app creates its message queues at startup); the others share it, read and write.
 // deployables[].hosting "staticwebapp": a site of static files on Azure Static Web Apps (modules/staticwebapp.bicep):
 // the health dashboard, which has no server, no identity and no database login.
+// "storagewebsite": the same site on a storage account's static website (modules/storagewebsite.bicep; opt-in).
 // deployables[].environments (container deployables and static sites, scripts/test-system.ps1): the environments the deployable
 // exists in; left out, it exists in every environment. An environment it does not name gets none of its resources.
 // A deployable with hosting "own" brings its runtime (principle 007): nothing below creates anything for it, and it
@@ -149,6 +150,7 @@ var containerApps = map(containerDeployables, d => {
 })
 var appServiceDeployables = filter(hostedDeployables, d => d.hosting == 'appservice')
 var staticDeployables = filter(hostedDeployables, d => d.hosting == 'staticwebapp')
+var storageDeployables = filter(hostedDeployables, d => d.hosting == 'storagewebsite')
 // The environment has a database when an app in it uses one: a container deployable with database (the default), or an
 // App Service deployable (which shares the first app's database). Without one (an app of the person's own,
 // app.source "repository"), the environment has no SQL server and its vault holds no SQL secret.
@@ -157,11 +159,13 @@ var hasDatabase = !empty(filter(containerDeployables, d => d.database)) || !empt
 // so the region of the resource need not be the system's (system.staticLocation, optional).
 var staticLocation = union({ staticLocation: 'centralus' }, system.system).staticLocation
 // The dashboard runs in the browser and calls the health and version endpoints of every app itself, so with a static
-// deployable the App Service apps answer requests from other origins (CORS). Every origin (*), not the dashboard's
-// address: each environment's dashboard shows the nodes of every environment, so the origins to allow would be the
-// sites of all environments, of both tiers; the endpoints it calls are public health and version endpoints that
-// answer anyone anyway; and no credentials are sent or allowed. Without a static deployable nothing is set.
-var corsAllowedOrigins = empty(staticDeployables) ? [] : ['*']
+// deployable the App Service apps answer requests from other origins (CORS), and so do the container apps, whose
+// health path the page probes while it shows them (decision 0038; a setting of their ingress, GET only). Every origin
+// (*), not the dashboard's address: each environment's dashboard shows the nodes of every environment, so the origins
+// to allow would be the sites of all environments, of both tiers; the endpoints it calls are public health and version
+// endpoints that answer anyone anyway; and no credentials are sent or allowed. Without a static deployable nothing is
+// set.
+var corsAllowedOrigins = empty(staticDeployables) && empty(storageDeployables) ? [] : ['*']
 
 // In the system's region, like the vault: a placement move of the apps leaves the identity and its roles as they are.
 resource secretIdentities 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = [
@@ -328,6 +332,44 @@ module staticSites 'modules/staticwebapp.bicep' = if (!empty(staticDeployables))
   }
 }
 
+// Only with a storage website: one storage account per deployable, in the system's region.
+module storageSites 'modules/storagewebsite.bicep' = if (!empty(storageDeployables)) {
+  name: 'storagewebsite-${environmentName}'
+  params: {
+    slug: slug
+    environmentName: environmentName
+    location: location
+    tags: tags
+    deployables: storageDeployables
+    versions: versions
+    deployPrincipalId: deployPrincipalId
+  }
+}
+
+// What the system adds to the environment itself (own/main.bicep, the system's file: the kit creates it empty once and
+// no template sync changes it; principle 007). It gets the environment and the identity of each container deployable
+// that has one of its own, and returns settings for container deployables, which reach their apps as environment
+// variables. Its resources are resources of this stack.
+module own 'own/main.bicep' = {
+  name: 'own-${environmentName}'
+  params: {
+    stack: {
+      slug: slug
+      environmentName: environmentName
+      location: location
+      tags: tags
+      identities: [
+        for (d, i) in secretDeployables: {
+          deployable: d.name
+          principalId: secretIdentities[i].properties.principalId
+          clientId: secretIdentities[i].properties.clientId
+          resourceId: secretIdentities[i].id
+        }
+      ]
+    }
+  }
+}
+
 // Only with a container deployable: a system whose apps all run on App Service has no Container Apps environment, and
 // no registry either (system.json then has no azure.registry: the seed creates none).
 module apps 'modules/containerapps.bicep' = if (!empty(containerDeployables)) {
@@ -348,12 +390,14 @@ module apps 'modules/containerapps.bicep' = if (!empty(containerDeployables)) {
     location: appLocation
     tags: tags
     deployables: containerApps
+    ownSettings: own.outputs.settings
     vaultUri: vault.outputs.vaultUri
     versions: versions
     registryServer: union({ registry: { loginServer: '' } }, system.azure).registry.loginServer
     identityResourceId: app.resourceId
     connectionStringSecretUri: vault.outputs.connectionStringSecretUri
     applicationInsightsConnectionString: contains(capabilities, 'telemetry') ? telemetry!.outputs.connectionString : ''
+    corsAllowedOrigins: corsAllowedOrigins
   }
 }
 
@@ -368,7 +412,8 @@ output sqlAdminLogin string = hasDatabase ? sqlAdminLogin : ''
 output deployables array = concat(
   empty(containerDeployables) ? [] : apps!.outputs.deployables,
   empty(appServiceDeployables) ? [] : appService!.outputs.deployables,
-  empty(staticDeployables) ? [] : staticSites!.outputs.deployables
+  empty(staticDeployables) ? [] : staticSites!.outputs.deployables,
+  empty(storageDeployables) ? [] : storageSites!.outputs.deployables
 )
 // The same App Service deployables in the standby region (empty without a standbyLocation): the scripts deploy to and
 // verify both, and the Front Door endpoint has both as origins.

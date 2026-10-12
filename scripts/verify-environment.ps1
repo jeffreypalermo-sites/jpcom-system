@@ -12,7 +12,8 @@
     Deployable.Name limits the check to one deployable. The deadline covers a scale-from-zero start and a SQL
     database resuming from auto-pause; a revision that cannot start (crash loop, image pull failure, failed
     provisioning) fails the step at once, with the container's last console lines. A static site (hosting
-    "staticwebapp") has no revision and no plan to ask: only its URL is polled.
+    "staticwebapp" or "storagewebsite") has no revision and no plan to ask: only its URL is polled. A storage website
+    serves nothing before its first release, so "Verify environment" passes over one the stack knows no version of.
 
     A deployable that brings its own runtime (hosting "own") is not in the stack and verifies itself, in its own
     project (scripts/invoke-application.ps1). "Verify environment" therefore passes over a stack that lists no
@@ -27,6 +28,16 @@ $ErrorActionPreference = 'Stop'
 $PSNativeCommandArgumentPassing = 'Standard'
 $PSNativeCommandUseErrorActionPreference = $true
 $ProgressPreference = 'SilentlyContinue'
+
+# An Azure step can drop the result message of Fail-Step (exit code 255, no reason): the reason is a plain line too.
+$octopusFailStep = if (Test-Path -LiteralPath function:Fail-Step) { ${function:Fail-Step} } else { $null }
+function Fail-Step {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseApprovedVerbs', '')]
+    param([string] $Message)
+    Write-Host $Message
+    if ($octopusFailStep) { & $octopusFailStep $Message }
+    exit -1
+}
 
 # Every step starts in a fresh worker container. The Azure CLI writes progress spinners and, when it installs Bicep,
 # a WARNING line to stderr, which Octopus logs as errors ("SuccessWithWarning"): turn both off.
@@ -126,6 +137,10 @@ function Write-RevisionLog {
 
 $failed = 0
 foreach ($deployable in $deployables) {
+    if (-not $only -and $deployable['hosting'] -eq 'storagewebsite' -and -not $deployable['version']) {
+        Write-Highlight "SKIP $($deployable.name) in ${environmentName}: no release of it here yet, and a storage website serves nothing before the first ($($deployable.url))"
+        continue
+    }
     # Only a container app has one: empty for App Service and for a static site.
     $app = [string] $deployable['containerApp']
     $path = if ($only -and $healthPath) { $healthPath } else { [string] $deployable.healthPath }
@@ -147,6 +162,7 @@ foreach ($deployable in $deployables) {
         $problem = switch ([string] $deployable['hosting']) {
             'appservice' { Get-SiteProblem -WebApp ([string] $deployable.webApp) }
             'staticwebapp' { $null }
+            'storagewebsite' { $null }
             default { Get-RevisionProblem -App $app }
         }
         if ($problem) {

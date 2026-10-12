@@ -481,6 +481,43 @@ resource "octopusdeploy_process_step" "deploy_staticwebapp" {
   }
 }
 
+locals {
+  storage_website_functions = file("${path.module}/../scripts/deploy-storagewebsite.ps1")
+}
+
+# Hosting "storagewebsite": the same script and package, with the upload of scripts/deploy-storagewebsite.ps1 joined in.
+resource "octopusdeploy_process_step" "deploy_storagewebsite" {
+  for_each = local.storage_deployables
+
+  process_id     = octopusdeploy_process.deployable[each.key].id
+  name           = "Update deployable"
+  type           = "Octopus.AzurePowerShell"
+  worker_pool_id = local.worker_pool_id
+  container      = local.container
+
+  packages = {
+    site = {
+      package_id           = "${local.slug}-${each.key}"
+      feed_id              = local.built_in_feed_id
+      acquisition_location = "Server"
+      properties = {
+        Extract       = "True"
+        Purpose       = ""
+        SelectionMode = "immediate"
+      }
+    }
+  }
+
+  execution_properties = {
+    "Octopus.Action.Azure.AccountId"     = "#{Azure.Account}"
+    "Octopus.Action.RunOnServer"         = "true"
+    "Octopus.Action.Script.ScriptSource" = "Inline"
+    "Octopus.Action.Script.Syntax"       = "PowerShell"
+    "Octopus.Action.Script.ScriptBody"   = join("\n", [local.github_token_functions, local.storage_website_functions, file("${path.module}/../scripts/deploy-staticwebapp.ps1")])
+    "OctopusUseBundledTooling"           = "False"
+  }
+}
+
 # hosting "own": the application's own deploy.ps1 and verify.ps1, from the package its release carries (the content of
 # the application repository's deploy/ folder), run as the tier's deploy identity. Same step names as every other
 # deployable, so the lifecycle, the pin and the checks read alike. These steps run code from the application's
@@ -730,6 +767,7 @@ resource "octopusdeploy_process_steps_order" "deployable" {
     contains(keys(local.container_deployables), each.key) ? [octopusdeploy_process_step.update[each.key].id] : [],
     contains(keys(local.appservice_deployables), each.key) ? [octopusdeploy_process_step.deploy_appservice[each.key].id] : [],
     contains(keys(local.static_deployables), each.key) ? [octopusdeploy_process_step.deploy_staticwebapp[each.key].id] : [],
+    contains(keys(local.storage_deployables), each.key) ? [octopusdeploy_process_step.deploy_storagewebsite[each.key].id] : [],
     contains(keys(local.own_deployables), each.key) ? [
       octopusdeploy_process_step.deploy_own[each.key].id,
       octopusdeploy_process_step.verify_own[each.key].id,
