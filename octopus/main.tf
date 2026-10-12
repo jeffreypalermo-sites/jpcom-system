@@ -48,6 +48,9 @@ locals {
   # (scripts/invoke-application.ps1).
   own_deployables      = { for name, d in local.deployables : name => d if try(d.hosting, "containerapp") == "own" }
   migrated_deployables = { for name, d in local.deployables : name => d if try(d.databasePackage, "") != "" }
+  # The deployables whose deployment records the database's tables for the dashboard's database view (decision 0040):
+  # those that migrate it, unless the system switched the view off ("databaseView": false on "system").
+  schema_deployables = try(local.system.system.databaseView, true) == false ? {} : local.migrated_deployables
   # deployables[].environments: a deployable that exists in some environments only (a container or a static site; the rule
   # is in scripts/test-system.ps1). It gets a lifecycle of its own with those environments, in the system's order, so
   # Octopus offers its releases nowhere else.

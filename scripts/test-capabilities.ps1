@@ -791,8 +791,27 @@ $checks = [ordered] @{
                 $inGroup = @(foreach ($systemGroup in @($system.azure.resourceGroups.Values | ForEach-Object { [string] $_ } | Where-Object { $_ } | Select-Object -Unique)) {
                         az resource list --resource-group $systemGroup --query '[].{type:type,name:name,environment:tags.environment}' --output json | ConvertFrom-Json
                     })
+                # A container app that is the node of an application with its own runtime is drawn as that node, in the
+                # diagram of the environment that recorded the node and in no other (deploy-staticwebapp.ps1): its
+                # address, from containers.json on branch status, is the address of a recorded node.
+                $nodePlace = @{}
+                $hostPlace = @{}
+                foreach ($recordedEnvironment in $recorded.Keys) {
+                    foreach ($recordedDeployable in @($recorded[$recordedEnvironment].Values | Where-Object { $_ -is [System.Collections.IDictionary] })) {
+                        foreach ($recordedNode in @($recordedDeployable['nodes'] | Where-Object { $_ -is [System.Collections.IDictionary] -and $_['url'] })) {
+                            $recordedAddress = $null
+                            if ([uri]::TryCreate([string] $recordedNode['url'], [UriKind]::Absolute, [ref] $recordedAddress)) { $hostPlace[$recordedAddress.Host] = [string] $recordedEnvironment }
+                        }
+                    }
+                }
+                if ($hostPlace.Count -gt 0 -and $statusContainers -is [System.Collections.IDictionary] -and $statusContainers['resources'] -is [System.Collections.IDictionary]) {
+                    foreach ($listedApp in @($statusContainers['resources'].Values | ForEach-Object { $_ } | Where-Object { $_ -is [System.Collections.IDictionary] -and [string] $_['type'] -ieq 'Microsoft.App/containerApps' -and $_['address'] })) {
+                        $listedAddress = $null
+                        if ([uri]::TryCreate([string] $listedApp['address'], [UriKind]::Absolute, [ref] $listedAddress) -and $hostPlace.ContainsKey($listedAddress.Host)) { $nodePlace[[string] $listedApp['name']] = $hostPlace[$listedAddress.Host] }
+                    }
+                }
                 # The tag is a set ("tdd,uat"): a shared resource is drawn in each environment it names.
-                $placed = @($inGroup | Where-Object {
+                $placed = @($inGroup | Where-Object { -not $nodePlace.ContainsKey([string] $_.name) -or $nodePlace[[string] $_.name] -eq $drawnEnvironment } | Where-Object {
                         $served = @(([string] $_.environment) -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ -and $environments -icontains $_ })
                         $served.Count -eq 0 -or $served -icontains $drawnEnvironment
                     })
@@ -800,14 +819,22 @@ $checks = [ordered] @{
                         @($_.type -split '/').Count -eq 2 -and $_.type -ne 'Microsoft.Authorization/roleAssignments' -and
                         -not ($hasEnvironmentFrame -and $_.type -ieq 'Microsoft.App/managedEnvironments') -and
                         -not $accounted.Contains([string] $_.name)
-                    } | ForEach-Object { $_.name })
-                Assert-That ($missing.Count -eq 0) "the runtime diagram of $drawnEnvironment in $e does not show $($missing -join ', '): deploy the release of $slug-$dashboardName to $e again"
+                    } | ForEach-Object {
+                        # A resource that no environment tag places is asked of every diagram, whatever its name says:
+                        # the message tells it apart (jpcom, 2026-10-12: production's resources read as tdd's).
+                        $tagged = @(([string] $_.environment) -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ -and $environments -icontains $_ })
+                        if ($tagged.Count -eq 0) { "$($_.name) (no environment tag: drawn in every diagram)" } else { [string] $_.name }
+                    })
+                Assert-That ($missing.Count -eq 0) "the runtime diagram of $drawnEnvironment that the dashboard in $e serves does not show $($missing -join ', '): let workflow delivery run once, then deploy the release of $slug-$dashboardName to $e again"
                 # A container app runs, whatever made it (the stack, or infra/own): a box of its own, never one name in
                 # the list of a box of several. Only the apps this diagram places: an app tagged with another environment
                 # is a box of that environment's diagram (cmdemo1, 2026-10-12: tdd's diagram was asked for uat's and
                 # prod's apps).
                 $boxNames = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
                 foreach ($node in @($manifest['nodes'] | Where-Object { $_ -is [System.Collections.IDictionary] -and $_['name'] })) { $null = $boxNames.Add([string] $node['name']) }
+                # A node of an application with its own runtime that is a container app of the groups is that app's box:
+                # it names the resource in "names" (deploy-staticwebapp.ps1).
+                foreach ($node in @($manifest['nodes'] | Where-Object { $_ -is [System.Collections.IDictionary] -and $_['kind'] -eq 'webapp' })) { foreach ($member in @($node['names'] | Where-Object { $_ })) { $null = $boxNames.Add([string] $member) } }
                 $listedOnly = @($placed | Where-Object { $_.type -ieq 'Microsoft.App/containerApps' -and -not $boxNames.Contains([string] $_.name) } | ForEach-Object { $_.name })
                 Assert-That ($listedOnly.Count -eq 0) "the runtime diagram of $drawnEnvironment in $e has no box of its own for the container app(s) $($listedOnly -join ', '): deploy the release of $slug-$dashboardName to $e again"
                 # Every box shows that what it stands for is online: the page's own probe, or a health line (decision 0038).
@@ -1106,6 +1133,68 @@ $checks = [ordered] @{
         $own = @(if ($code -eq 0) { $listed | Where-Object { $_ -cmatch '^test-.*\.ps1$' } })
         if ($own.Count -eq 0) { return "job own in azure-read as $plan; no infra/own/test-*.ps1, so it says SKIP own" }
         "job own runs $($own -join ', ') in $($environments -join ', '), in azure-read as $plan"
+    }
+    'CAP-091' = {
+        # The database's tables are recorded at each deployment, and the dashboard draws them (decision 0040).
+        if ($system.system['databaseView'] -eq $false) { Skip-Check 'system.json switches the database view off ("databaseView": false)' }
+        $migrating = @($system.deployables | Where-Object { $_['databasePackage'] })
+        if ($migrating.Count -eq 0) { Skip-Check 'no deployable migrates a database (databasePackage)' }
+        foreach ($d in $migrating) {
+            $names = @(Get-ProcessStep "$slug-$([string] $d.name)" | ForEach-Object { [string] $_.Name })
+            Assert-That ($names -contains 'Record database schema') "the process of $slug-$([string] $d.name) has no step Record database schema: run the system workflow, which applies octopus/"
+            Assert-That ($names.IndexOf('Migrate database') -lt $names.IndexOf('Record database schema')) "Record database schema of $slug-$([string] $d.name) does not stand after Migrate database"
+        }
+        # A record is there from the first deployment after the step: an environment without one is not behind.
+        $recorded = [ordered] @{}
+        foreach ($e in $environments) {
+            $text = Find-RepoFile $systemRepo "environments/$e/database.json"
+            if (-not $text) { continue }
+            $record = try { $text | ConvertFrom-Json -AsHashtable -NoEnumerate } catch { $null }
+            Assert-That ($record -is [System.Collections.IDictionary] -and @($record['tables'] | Where-Object { $_ -is [System.Collections.IDictionary] -and $_['name'] }).Count -gt 0) "environments/$e/database.json on main names no table: deploy a release of $slug-$([string] $migrating[0].name) to $e again"
+            $recorded[$e] = @($record['tables']).Count
+        }
+        if ($recorded.Count -eq 0) { return "step Record database schema in $(@($migrating | ForEach-Object { "$slug-$([string] $_.name)" }) -join ', '); no environment has a record yet (the next deployment writes it)" }
+        # Where a dashboard draws an environment's database, the view is served and has its tables.
+        $dashboard = @($system.deployables | Where-Object { $_['hosting'] -in 'staticwebapp', 'storagewebsite' }) | Select-Object -First 1
+        $viewed = @(if ($dashboard) {
+                foreach ($e in $environments) {
+                    if (-not (Find-LastDeployment "$slug-$([string] $dashboard.name)" $e)) { continue }
+                    $url = "$(az stack group show --name "stack-$slug-$e" --resource-group (Get-Group $e) --query "outputs.deployables.value[?name=='$([string] $dashboard.name)'].url | [0]" --output tsv)".Trim()
+                    if (-not $url) { continue }
+                    $answer = Invoke-WebRequest -Uri "$url/runtime/index.json" -TimeoutSec 120 -SkipHttpErrorCheck
+                    if ($answer.StatusCode -ne 200) { continue }
+                    $index = $(if ($answer.Content -is [byte[]]) { [Text.Encoding]::UTF8.GetString($answer.Content) } else { [string] $answer.Content }) | ConvertFrom-Json -AsHashtable
+                    foreach ($entry in @($index['environments'] | Where-Object { $_ -is [System.Collections.IDictionary] -and $_['database'] -is [System.Collections.IDictionary] })) {
+                        foreach ($file in @([string] $entry['database']['manifest'], [string] $entry['database']['svg'])) {
+                            $served = Invoke-WebRequest -Uri "$url/runtime/$file" -TimeoutSec 120 -SkipHttpErrorCheck
+                            Assert-That ($served.StatusCode -eq 200 -and $served.RawContentLength -gt 0) "the dashboard in $e does not serve runtime/$file (HTTP $($served.StatusCode)): deploy the release of $slug-$([string] $dashboard.name) to $e again"
+                        }
+                        "$([string] $entry['name']) in $e"
+                    }
+                }
+            })
+        "tables recorded in $(@($recorded.Keys | ForEach-Object { "$_ ($($recorded[$_]))" }) -join ', '); database view of $(if ($viewed.Count -gt 0) { $viewed -join ', ' } else { 'no environment yet (the next deployment of the dashboard draws it)' })"
+    }
+    'CAP-092' = {
+        # Every application's repository publishes the logical architecture of its releases (decision 0041).
+        if ($system.system['applicationView'] -eq $false) { Skip-Check 'system.json switches the application view off ("applicationView": false)' }
+        $applications = @($system.deployables | Where-Object { $_['repository'] -and $_['hosting'] -notin 'staticwebapp', 'storagewebsite' })
+        if ($applications.Count -eq 0) { Skip-Check 'no deployable but the dashboard names a repository' }
+        $organization = [string] $system.system.githubOrg
+        $published = @(foreach ($d in $applications) {
+                $repo = "$organization/$([string] $d.repository)"
+                Assert-That ([bool] (Find-RepoFile $repo '.github/workflows/architecture.yml')) "$repo has no .github/workflows/architecture.yml: run sync-app-workflows.ps1 and merge its pull request"
+                Assert-That ([bool] (Find-RepoFile $repo '.github/architecture/write-architecture.ps1')) "$repo has no .github/architecture/write-architecture.ps1, which its workflow Architecture runs: run sync-app-workflows.ps1 and merge its pull request"
+                # A repository that has not built since it got the workflow has no branch yet: it is not behind.
+                $PSNativeCommandUseErrorActionPreference = $false
+                $listed = @(gh api "repos/$repo/contents/$([string] $d.name)?ref=architecture" --jq '.[].name' 2>&1 | ForEach-Object { "$_" })
+                $code = $LASTEXITCODE
+                $PSNativeCommandUseErrorActionPreference = $true
+                if ($code -ne 0 -and ($listed -join ' ') -notmatch 'HTTP 404') { throw "cannot list branch architecture of ${repo}: $($listed -join ' ')" }
+                $versions = @(if ($code -eq 0) { $listed | Where-Object { $_ -cmatch '\.svg$' } })
+                "$([string] $d.name) ($($versions.Count))"
+            })
+        "workflow Architecture in every application's repository; released versions with a diagram: $($published -join ', ')"
     }
 }
 
