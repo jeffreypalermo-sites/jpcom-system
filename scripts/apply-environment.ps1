@@ -28,6 +28,16 @@ $ErrorActionPreference = 'Stop'
 $PSNativeCommandArgumentPassing = 'Standard'
 $PSNativeCommandUseErrorActionPreference = $true
 
+# An Azure step can drop the result message of Fail-Step (exit code 255, no reason): the reason is a plain line too.
+$octopusFailStep = if (Test-Path -LiteralPath function:Fail-Step) { ${function:Fail-Step} } else { $null }
+function Fail-Step {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseApprovedVerbs', '')]
+    param([string] $Message)
+    Write-Host $Message
+    if ($octopusFailStep) { & $octopusFailStep $Message }
+    exit -1
+}
+
 # The Azure CLI checks once a day whether a newer Bicep exists and says so as a warning on the next command that
 # reads a template: a warning in the log that is about nothing in it. The version in use is the installed one.
 $env:AZURE_BICEP_CHECK_VERSION = 'false'
@@ -497,9 +507,9 @@ if (@($applied.capabilities.value) -contains 'frontdoor' -and -not $dormant) {
     if (-not $frontDoor['profile']) {
         Fail-Step "Environment $environmentName has capability frontdoor, but system.json has no azure.frontDoor: run the seed with azure.frontDoor in the demo file, and add its output to system.json."
     }
-    # A static site (hosting "staticwebapp") gets no endpoint: its platform already serves it from edge locations
-    # under an address of its own, and it has no standby to fail over to.
-    $edgeDeployables = @(foreach ($deployable in @($applied.deployables.value | Where-Object { $_['hosting'] -ne 'staticwebapp' })) {
+    # A static site (hosting "staticwebapp" or "storagewebsite") gets no endpoint: it is served under an address of
+    # its own, and it has no standby to fail over to.
+    $edgeDeployables = @(foreach ($deployable in @($applied.deployables.value | Where-Object { $_['hosting'] -notin 'staticwebapp', 'storagewebsite' })) {
             $origins = @(@{ name = 'primary'; hostName = ([uri] [string] $deployable.url).Host; priority = 1 })
             foreach ($site in @($standbySites | Where-Object { $_.name -eq $deployable.name })) {
                 $origins += @{ name = 'standby'; hostName = ([uri] [string] $site.url).Host; priority = 2 }

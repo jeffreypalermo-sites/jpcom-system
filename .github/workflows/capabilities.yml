@@ -5,9 +5,10 @@
 # repository's files, rulesets and branches, and the app repository's rulesets) are made as the system's own GitHub
 # App when system.json names one (github.app; the App's key is the secret SYSTEM_APP_PRIVATE_KEY): a token for this
 # repository with Contents read only, which reads a public app repository as anyone does. Otherwise they go through
-# the stored token OCTOPUS_GITHUB_TOKEN. The result is an issue with label "capability": opened or updated while a
-# check fails, closed when the next run passes. Every system build ends with the same checks (system.yml calls this
-# workflow).
+# the stored token OCTOPUS_GITHUB_TOKEN. Job own then runs the system's own checks (scripts/test-own.ps1: each
+# infra/own/test-*.ps1 in every environment) in environment azure-read, as id-<slug>-plan and nothing else. Job report
+# keeps the result of both as one issue with label "capability": opened or updated while a check fails, closed when
+# the next run passes. Every system build ends with the same checks (system.yml calls this workflow).
 name: capabilities
 
 on:
@@ -25,6 +26,12 @@ jobs:
   capabilities:
     runs-on: ubuntu-24.04
     environment: capabilities
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      outcome: ${{ steps.checks.outcome }}
+      failed: ${{ steps.result.outputs.failed }}
     steps:
       - uses: actions/checkout@v6.0.1
 
@@ -106,26 +113,109 @@ jobs:
           ./scripts/test-capabilities.ps1 -WaitMinutes 40 *>&1 | Tee-Object -FilePath "${{ runner.temp }}/capabilities.txt"
           exit $LASTEXITCODE
 
+      # The whole report is this job's summary; job report takes what failed into the issue.
+      - name: Hand the result on
+        id: result
+        env:
+          OUTCOME: ${{ steps.checks.outcome }}
+          REPORT: ${{ runner.temp }}/capabilities.txt
+        run: |
+          set -euo pipefail
+          touch "$REPORT"
+          { echo '```'; cat "$REPORT"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          lines=""
+          if [ "$OUTCOME" != "success" ]; then lines=$(grep -E '^(FAIL|[0-9]+ of)' "$REPORT" || tail -n 20 "$REPORT"); fi
+          # Base64 keeps the lines one line of output.
+          echo "failed=$(printf '%s' "$lines" | base64 -w0)" >> "$GITHUB_OUTPUT"
+
+  # After the capability checks, which wait until Octopus is quiet: a job in azure-read cannot sign in to Octopus.
+  own:
+    needs: capabilities
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    environment: azure-read
+    # What a GitHub OIDC sign-in to Azure lasts.
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      outcome: ${{ steps.own.outcome }}
+      failed: ${{ steps.result.outputs.failed }}
+    steps:
+      - uses: actions/checkout@v6.0.1
+        with:
+          persist-credentials: false
+
+      - uses: azure/login@v3
+        if: hashFiles('infra/own/test-*.ps1') != ''
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID_PLAN }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Run the system's own checks
+        id: own
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          ./scripts/test-own.ps1 *>&1 | Tee-Object -FilePath "${{ runner.temp }}/own.txt"
+          exit $LASTEXITCODE
+
+      - name: Hand the result of the own checks on
+        id: result
+        env:
+          OUTCOME: ${{ steps.own.outcome }}
+          REPORT: ${{ runner.temp }}/own.txt
+        run: |
+          set -euo pipefail
+          touch "$REPORT"
+          { echo '```'; cat "$REPORT"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          lines=""
+          if [ "$OUTCOME" != "success" ]; then lines=$(grep -E '^(FAIL|[0-9]+ of)' "$REPORT" || tail -n 20 "$REPORT"); fi
+          echo "failed=$(printf '%s' "$lines" | base64 -w0)" >> "$GITHUB_OUTPUT"
+
+  # One issue for both jobs: the fleet reads it as its finding capability/<slug>.
+  report:
+    needs: [capabilities, own]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      issues: write
+    steps:
       - name: Report failed capabilities as an issue
         env:
           GH_TOKEN: ${{ github.token }}
-          OUTCOME: ${{ steps.checks.outcome }}
+          GH_REPO: ${{ github.repository }}
+          CAPABILITIES_RESULT: ${{ needs.capabilities.result }}
+          CAPABILITIES_OUTCOME: ${{ needs.capabilities.outputs.outcome }}
+          CAPABILITIES_FAILED: ${{ needs.capabilities.outputs.failed }}
+          OWN_RESULT: ${{ needs.own.result }}
+          OWN_OUTCOME: ${{ needs.own.outputs.outcome }}
+          OWN_FAILED: ${{ needs.own.outputs.failed }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          report="${{ runner.temp }}/capabilities.txt"
-          touch "$report"
-          { echo '```'; cat "$report"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          # What a job handed on, or one line for a job whose checks gave no result.
+          unproven() {
+            if [ "$2" = "success" ] && [ "$3" = "success" ]; then return 0; fi
+            local lines
+            lines=$(printf '%s' "$4" | base64 -d)
+            if [ -n "$lines" ]; then printf '%s\n' "$lines"; else echo "FAIL $1: no result (job $1: $2, its checks: ${3:-not run}); see the run"; fi
+          }
+          failed=$(unproven capabilities "$CAPABILITIES_RESULT" "$CAPABILITIES_OUTCOME" "$CAPABILITIES_FAILED"; unproven own "$OWN_RESULT" "$OWN_OUTCOME" "$OWN_FAILED")
           gh label create capability --color B60205 --description "A capability of the system is not proven" --force >/dev/null
           issue=$(gh issue list --label capability --state open --json number --jq '.[0].number // empty')
-          if [ "$OUTCOME" = "success" ]; then
+          if [ -z "$failed" ]; then
             if [ -n "$issue" ]; then
               gh issue close "$issue" --comment "All capabilities proven on $(date -u +%F) ($RUN_URL)."
             fi
             exit 0
           fi
-          intro="The nightly capability checks failed ($RUN_URL). Each FAIL line names the capability (CAP-NNN in the kit's docs/capabilities.md) and what was found."
-          body=$(printf '%s\n\n```\n%s\n```\n' "$intro" "$(grep -E '^(FAIL|[0-9]+ of)' "$report" || cat "$report")")
+          intro="The nightly capability checks failed ($RUN_URL). Each FAIL line names the capability (CAP-NNN in the kit's docs/capabilities.md) and what was found;"
+          intro="$intro a line FAIL own names one of the system's own checks (infra/own/test-*.ps1) and the environment."
+          body=$(printf '%s\n\n```\n%s\n```\n' "$intro" "$failed")
           if [ -n "$issue" ]; then
             gh issue comment "$issue" --body "$body"
           else

@@ -3,15 +3,20 @@
 
 <#
 .SYNOPSIS
-    Rotates the SQL administrator password of the environment without downtime beyond an app restart.
+    Rotates the SQL administrator password of the environment without downtime beyond a container app's restart.
 
 .DESCRIPTION
     Runbook "Rotate SQL password" of the Octopus project <slug>-system (scheduled monthly in every environment;
     octopus/runbooks.tf inlines this file). Capability CAP-056. It generates a password, sets it on the SQL server
     through the ARM API from a private file (never in an argument), writes it and the connection string to the
-    environment's Key Vault, restarts each app's latest revision so it reads the new secret, and checks that every app
-    answers its health path. The next "Apply environment" reads the password from the vault, so Git and the
-    environment stay consistent.
+    environment's Key Vault, restarts each container app's latest revision so it reads the new secret, and checks
+    that each of them answers its health path. The next "Apply environment" reads the password from the vault, so Git
+    and the environment stay consistent.
+
+    What it does not rotate: a deployable on App Service signs in to the database with a login of its own
+    (<name>-sql-password in the vault, made once by "Apply environment"), which this runbook leaves alone and nothing
+    else changes. In a system without container apps the runbook therefore restarts nothing, and its last line says
+    so.
 #>
 [CmdletBinding()]
 param()
@@ -21,6 +26,16 @@ $ErrorActionPreference = 'Stop'
 $PSNativeCommandArgumentPassing = 'Standard'
 $PSNativeCommandUseErrorActionPreference = $true
 $ProgressPreference = 'SilentlyContinue'
+
+# An Azure step can drop the result message of Fail-Step (exit code 255, no reason): the reason is a plain line too.
+$octopusFailStep = if (Test-Path -LiteralPath function:Fail-Step) { ${function:Fail-Step} } else { $null }
+function Fail-Step {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseApprovedVerbs', '')]
+    param([string] $Message)
+    Write-Host $Message
+    if ($octopusFailStep) { & $octopusFailStep $Message }
+    exit -1
+}
 
 # Every step starts in a fresh worker container. The Azure CLI writes progress spinners and, when it installs Bicep,
 # a WARNING line to stderr, which Octopus logs as errors ("SuccessWithWarning"): turn both off.
@@ -33,6 +48,14 @@ $resourceGroup = [string] $OctopusParameters['Azure.ResourceGroup']
 $outputs = (az stack group show --name "stack-$slug-$environmentName" --resource-group $resourceGroup --output json | ConvertFrom-Json -AsHashtable).outputs
 $server = [string] $outputs.sqlServerName.value
 $vault = [string] $outputs.keyVaultName.value
+
+function Get-RotationSummary {
+    # The runbook's last line: what was rotated and what was restarted for it. Only container apps read the
+    # administrator's connection string; a system without one restarted nothing, and the line must not claim it did.
+    param([Parameter(Mandatory)] [string] $Environment, [Parameter(Mandatory)] [int] $Restarted)
+    if ($Restarted -eq 0) { return "SQL administrator password of $Environment rotated; no app uses it, so none was restarted." }
+    return "SQL administrator password of $Environment rotated; $Restarted container app$(if ($Restarted -ne 1) { 's' }) restarted and healthy."
+}
 
 function New-SqlPassword {
     # 32 characters with every class SQL Server's complexity rule asks for, from a cryptographic generator.
@@ -79,6 +102,7 @@ finally {
 }
 
 $failed = 0
+$restarted = 0
 # App Service deployables use logins of their own, not the administrator password, and a static site has no database
 # access at all: only container apps restart.
 foreach ($deployable in @($outputs.deployables.value | Where-Object { $_['containerApp'] })) {
@@ -96,6 +120,7 @@ foreach ($deployable in @($outputs.deployables.value | Where-Object { $_['contai
     }
     if ($status -eq 200) {
         Write-Host "$app restarted ($revision) and healthy"
+        $restarted++
     }
     else {
         Write-Warning "$app did not answer 200 on $uri within 10 minutes after the rotation (last $status)."
@@ -105,4 +130,4 @@ foreach ($deployable in @($outputs.deployables.value | Where-Object { $_['contai
 if ($failed -gt 0) {
     Fail-Step "$failed app(s) of $environmentName are unhealthy after the password rotation."
 }
-Write-Highlight "SQL password of $environmentName rotated; every app restarted and healthy."
+Write-Highlight (Get-RotationSummary -Environment $environmentName -Restarted $restarted)

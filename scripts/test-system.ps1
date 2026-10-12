@@ -11,7 +11,8 @@
     Prints PASS or FAIL per check and exits 1 when any check fails.
 
     - The slug, environment and deployable names follow the naming rules every template relies on.
-    - Each deployable's hosting is one the templates know: containerapp (the default), appservice or staticwebapp.
+    - Each deployable's hosting is one the templates know: containerapp (the default), appservice, staticwebapp,
+      storagewebsite (the same static site on a storage account's static website) or own.
     - With a container app among the deployables, azure.registry names the system's registry (the seed creates one
       only for a system that needs it).
     - Each environment has a tier (nonprod or prod), a runtime identity from the seed and a folder
@@ -133,14 +134,14 @@ if ($system.azure.ContainsKey('appEnvironment')) {
         }
     }
     foreach ($deployable in @($system.deployables)) {
-        Test-Rule "deployable $($deployable.name) on Container Apps" (-not $deployable.ContainsKey('hosting') -or $deployable.hosting -cin 'containerapp', 'own', 'staticwebapp') "with azure.appEnvironment every app is a container app (containerapp or own), next to a staticwebapp dashboard at most; '$($deployable['hosting'])' has no place in it"
+        Test-Rule "deployable $($deployable.name) on Container Apps" (-not $deployable.ContainsKey('hosting') -or $deployable.hosting -cin 'containerapp', 'own', 'staticwebapp', 'storagewebsite') "with azure.appEnvironment every app is a container app (containerapp or own), next to a staticwebapp or storagewebsite dashboard at most; '$($deployable['hosting'])' has no place in it"
     }
 }
 
 # Where a deployable runs: infra/main.bicep and octopus/main.tf have a module and an "Update deployable" step per
 # hosting, and a value they do not know would get neither. "own": the application brings its runtime (infra/ has
 # nothing for it; its project runs the deploy.ps1 and verify.ps1 of its release's package).
-$hostings = @('containerapp', 'appservice', 'staticwebapp', 'own')
+$hostings = @('containerapp', 'appservice', 'staticwebapp', 'storagewebsite', 'own')
 foreach ($deployable in @($system.deployables)) {
     if ($deployable.ContainsKey('hosting')) {
         Test-Rule "deployable $($deployable.name) hosting" ($hostings -ccontains [string] $deployable.hosting) "'$($deployable.hosting)' is not one of $($hostings -join ', ') (containerapp when left out)"
@@ -162,7 +163,7 @@ foreach ($deployable in @($system.deployables)) {
 #                        <deployable>-<name>. The operator writes its value to the vault (the kit's
 #                        set-demo-secret.ps1); with "generate": true the deployment generates it. Never a value here.
 $environmentNamesDeclared = @($system.environments | ForEach-Object { [string] $_.name })
-$containerKeys = @('environments', 'alwaysOn', 'alwaysOnEnvironments', 'database', 'cpu', 'settings', 'environmentSettings', 'urlSetting', 'secrets')
+$containerKeys = @('environments', 'alwaysOn', 'alwaysOnEnvironments', 'database', 'cpu', 'settings', 'environmentSettings', 'urlSetting', 'secrets', 'dashboardLink')
 $variableName = '^[A-Za-z_][A-Za-z0-9_]{0,254}$'
 # Set by the template itself, or by Container Apps.
 $reservedVariables = @('ConnectionStrings__SqlConnectionString', 'OTEL_SERVICE_NAME', 'APPLICATIONINSIGHTS_CONNECTION_STRING')
@@ -189,9 +190,9 @@ foreach ($deployable in @($system.deployables)) {
     $isContainer = -not $deployable.ContainsKey('hosting') -or $deployable.hosting -ceq 'containerapp'
     # A static site may name its environments too (the dashboard in the first environment only, where the
     # subscription's 10 Free Static Web Apps are used up: jpcom, 2026-10-08). The other keys are a container app's.
-    $staticWithEnvironments = $deployable['hosting'] -ceq 'staticwebapp' -and ($used -join ',') -ceq 'environments'
+    $staticWithEnvironments = $deployable['hosting'] -cin 'staticwebapp', 'storagewebsite' -and ($used -join ',') -ceq 'environments'
     if (-not $staticWithEnvironments) {
-        Test-Rule "deployable $name $($used -join ', ') on a container app" $isContainer "these keys apply to hosting containerapp only (environments also to staticwebapp); $name has hosting '$($deployable['hosting'])'"
+        Test-Rule "deployable $name $($used -join ', ') on a container app" $isContainer "these keys apply to hosting containerapp only (environments also to staticwebapp and storagewebsite); $name has hosting '$($deployable['hosting'])'"
         if (-not $isContainer) { continue }
     }
 
@@ -219,6 +220,17 @@ foreach ($deployable in @($system.deployables)) {
     }
     if ($deployable.ContainsKey('cpu')) {
         Test-Rule "deployable $name cpu" ($deployable.cpu -is [string] -and @('0.5', '1', '1.5', '2') -ccontains $deployable.cpu) 'one of "0.5", "1", "1.5", "2" (vCPU, as text; the memory is twice as many GiB)'
+    }
+
+    # A page of this app that the system's dashboard leads to, in every environment the app exists in: the words of
+    # the link, and the path under the app's address there (scripts/deploy-staticwebapp.ps1 writes it into the
+    # dashboard's topology as environments[].pages).
+    if ($deployable.ContainsKey('dashboardLink')) {
+        $link = $deployable.dashboardLink
+        $valid = $link -is [Collections.IDictionary] -and @($link.Keys | Where-Object { @('text', 'path') -cnotcontains $_ }).Count -eq 0 -and
+            $link['text'] -is [string] -and $link['text'].Trim().Length -ge 1 -and $link['text'].Length -le 40 -and $link['text'] -ceq $link['text'].Trim() -and
+            $link['path'] -is [string] -and $link['path'] -cmatch '^/(?!/)[A-Za-z0-9._~!$&''()*+,;=:@%/?#-]*$'
+        Test-Rule "deployable $name dashboardLink" $valid 'an object { "text": the words of the link (1 to 40 characters, no space at either end), "path": a path under the app''s address that starts with one / (for example "/" or "/scorecard") }; no other key'
     }
 
     # Every environment variable has one source: a setting (settings, with environmentSettings on top), the app's own
@@ -271,7 +283,7 @@ if (@($system.deployables | Where-Object { -not $_.ContainsKey('hosting') -or $_
 # A static site is the dashboard of the system's apps: the first deployable is the app the checks and the operator
 # scripts ask, so it is never the static site.
 if (@($system.deployables).Count -gt 0) {
-    Test-Rule 'first deployable is an app' (@($system.deployables)[0]['hosting'] -cne 'staticwebapp') 'the first deployable is the system''s first app; add a staticwebapp deployable after it'
+    Test-Rule 'first deployable is an app' (@($system.deployables)[0]['hosting'] -cnotin 'staticwebapp', 'storagewebsite') 'the first deployable is the system''s first app; add a static site after it'
 }
 # The Free plan of Static Web Apps exists in these regions only (system.staticLocation; centralus when left out).
 if ($system.system.ContainsKey('staticLocation')) {
@@ -326,6 +338,14 @@ foreach ($environment in $system.environments) {
                 [string]::IsNullOrWhiteSpace($_.Key) -or $_.Value -isnot [string] -or [string]::IsNullOrWhiteSpace($_.Value) -or $_.Value.Length -gt 100
             }).Count -eq 0
         Test-Rule "environment $name employee middle names" $valid 'an object of user name to middle name, 1 to 100 characters each'
+    }
+
+    # Optional: how long, in seconds, the step "Update deployable" keeps measuring availability after the new revision is
+    # ready (30 when left out: the full window). A shorter tail in the first environment makes a deployment there
+    # faster and its measurement shorter; uat and prod keep the full one.
+    if ($environment.ContainsKey('availabilityTailSeconds')) {
+        $tail = $environment.availabilityTailSeconds
+        Test-Rule "environment $name availabilityTailSeconds" ($tail -is [long] -and $tail -ge 5 -and $tail -le 30) 'a whole number of seconds from 5 to 30 (30 when left out)'
     }
 
     foreach ($capability in @($environment.capabilities)) {

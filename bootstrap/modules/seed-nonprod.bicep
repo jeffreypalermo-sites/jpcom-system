@@ -22,12 +22,20 @@ param acrPushSubjects array
 param deploySubjects array
 param appEnvironments array
 
+@description('Names of every environment of the system, of both tiers: those the resources of this module serve (the registry, the Terraform state, the plan, octopus-config and acr-push identities).')
+param servedEnvironments array = []
+
+// What every environment shares is tagged with the list of them ("tdd,uat,prod"): the runtime diagram draws it in
+// each, and the cost report counts it as shared (decisions 0037 and 0039).
+var sharedTags = empty(servedEnvironments) ? tags : union(tags, { environment: join(servedEnvironments, ',') })
+
 var suffix = take(uniqueString(resourceGroup().id, slug), 6)
 
 resource registry 'Microsoft.ContainerRegistry/registries@2023-07-01' = if (containerRegistry) {
   name: 'acr${slug}${suffix}'
   location: location
-  tags: tags
+  // The environments that pull from it, as a list: the runtime diagram draws it in each of them.
+  tags: sharedTags
   sku: {
     name: 'Basic'
   }
@@ -39,7 +47,7 @@ resource registry 'Microsoft.ContainerRegistry/registries@2023-07-01' = if (cont
 resource state 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   name: 'st${slug}tf${suffix}'
   location: location
-  tags: tags
+  tags: sharedTags
   kind: 'StorageV2'
   sku: {
     name: 'Standard_LRS'
@@ -67,7 +75,7 @@ resource stateContainer 'Microsoft.Storage/storageAccounts/blobServices/containe
 resource plan 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
   name: 'id-${slug}-plan'
   location: location
-  tags: tags
+  tags: sharedTags
 }
 
 resource planCredential 'Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials@2023-01-31' = {
@@ -116,7 +124,7 @@ module planCostReader 'role-assignment.bicep' = {
 resource octopusConfig 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
   name: 'id-${slug}-octopus-config'
   location: location
-  tags: tags
+  tags: sharedTags
 }
 
 resource octopusConfigCredential 'Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials@2023-01-31' = {
@@ -144,7 +152,7 @@ resource stateWriter 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
 resource acrPush 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = if (containerRegistry) {
   name: 'id-${slug}-acr-push'
   location: location
-  tags: tags
+  tags: sharedTags
 }
 
 @batchSize(1)

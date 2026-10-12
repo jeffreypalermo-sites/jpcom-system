@@ -21,6 +21,16 @@ $ErrorActionPreference = 'Stop'
 $PSNativeCommandArgumentPassing = 'Standard'
 $PSNativeCommandUseErrorActionPreference = $true
 
+# An Azure step can drop the result message of Fail-Step (exit code 255, no reason): the reason is a plain line too.
+$octopusFailStep = if (Test-Path -LiteralPath function:Fail-Step) { ${function:Fail-Step} } else { $null }
+function Fail-Step {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseApprovedVerbs', '')]
+    param([string] $Message)
+    Write-Host $Message
+    if ($octopusFailStep) { & $octopusFailStep $Message }
+    exit -1
+}
+
 # Every step starts in a fresh worker container. The Azure CLI writes progress spinners and, when it installs Bicep,
 # a WARNING line to stderr, which Octopus logs as errors ("SuccessWithWarning"): turn both off.
 $env:AZURE_CORE_DISABLE_PROGRESS_BAR = 'true'
@@ -152,7 +162,8 @@ $declaredSecrets = @(([string] $OctopusParameters['Deployable.Secrets']) -split 
 $referencedSecrets = @($current.properties.configuration['secrets'] | Where-Object { $_ } | ForEach-Object { [string] $_.name })
 $absentSecrets = @($declaredSecrets | Where-Object { $referencedSecrets -notcontains $_ })
 if ($absentSecrets.Count -gt 0) {
-    Fail-Step "$app does not reference the secret(s) $($absentSecrets -join ', ') that $deployable declares: the operator writes each one to the vault of $environmentName (the kit's set-demo-secret.ps1), then the latest release of $slug-system is deployed to $environmentName again, then this release."
+    $reason = "$app does not reference the secret(s) $($absentSecrets -join ', ') that $deployable declares: the operator writes each one to the vault of $environmentName (the kit's set-demo-secret.ps1), then the latest release of $slug-system is deployed to $environmentName again, then this release."
+    Fail-Step $reason
 }
 
 # Zero downtime, measured: while this step changes the environment, a background probe asks every app's health
@@ -337,8 +348,14 @@ while ($true) {
     Start-Sleep -Seconds 10
 }
 if ($probe) {
-    # A little longer than the update: the new revision takes the traffic once it is ready.
-    Start-Sleep -Seconds 30
+    # A little longer than the update: the new revision takes the traffic once it is ready. 30 seconds, or what the
+    # environment declares (system.json environments[].availabilityTailSeconds, 5 to 30: the variable
+    # Availability.TailSeconds): a shorter tail in the first environment is a shorter measurement there.
+    $tail = 30
+    $declaredTail = [string] $OctopusParameters['Availability.TailSeconds']
+    if ($declaredTail -match '^\d+$' -and [int] $declaredTail -ge 5 -and [int] $declaredTail -le 30) { $tail = [int] $declaredTail }
+    if ($tail -ne 30) { Write-Host "Availability is measured $tail seconds after the revision is ready (environments[].availabilityTailSeconds of $environmentName; 30 where it is not set)." }
+    Start-Sleep -Seconds $tail
     $downtime = Stop-AvailabilityProbe -Handle $probe
     if ($downtime -gt 0) {
         Fail-Step "Updating $app to $version caused $downtime downtime period(s); the timeline is above."

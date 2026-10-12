@@ -41,6 +41,8 @@ locals {
   container_deployables  = { for name, d in local.deployables : name => d if try(d.hosting, "containerapp") == "containerapp" }
   appservice_deployables = { for name, d in local.deployables : name => d if try(d.hosting, "containerapp") == "appservice" }
   static_deployables     = { for name, d in local.deployables : name => d if try(d.hosting, "containerapp") == "staticwebapp" }
+  # "storagewebsite": the same site on a storage account's static website (opt-in; decision 0035).
+  storage_deployables = { for name, d in local.deployables : name => d if try(d.hosting, "containerapp") == "storagewebsite" }
   # deployables[].hosting "own": the application brings its runtime (principle 007). infra/ creates nothing for it;
   # its release carries a package with deploy.ps1 and verify.ps1, which its project runs in every environment
   # (scripts/invoke-application.ps1).

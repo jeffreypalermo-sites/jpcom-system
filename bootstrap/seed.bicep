@@ -186,6 +186,7 @@ module nonprod 'modules/seed-nonprod.bicep' = {
     acrPushSubjects: [for repository in appRepositories: '${githubSubjectPrefixes[?repository] ?? 'repo:${githubOrg}/${repository}'}:environment:release']
     deploySubjects: flatten(map(nonprodEnvironments, e => map(octopusProjectSlugs, p => 'space:${octopusSpaceSlug}:project:${p}:environment:${e.name}')))
     appEnvironments: map(nonprodEnvironments, e => e.name)
+    servedEnvironments: map(environments, e => e.name)
   }
 }
 

@@ -82,7 +82,7 @@ locals {
     }
     rotate_sql_password = {
       name         = "Rotate SQL password"
-      description  = "New SQL administrator password through Key Vault, app restart and health check (scripts/rotate-sql-password.ps1)."
+      description  = "New SQL administrator password through Key Vault; container apps restart and answer their health path. The logins of App Service deployables are not rotated (scripts/rotate-sql-password.ps1)."
       script       = "rotate-sql-password.ps1"
       environments = [for name, e in local.environments : name]
       cron         = "0 ${local.schedule_minute} ${8 + local.schedule_hours} 1 * *"
