@@ -1185,7 +1185,15 @@ $checks = [ordered] @{
         $organization = [string] $system.system.githubOrg
         $published = @(foreach ($d in $applications) {
                 $repo = "$organization/$([string] $d.repository)"
-                Assert-That ([bool] (Find-RepoFile $repo '.github/workflows/architecture.yml')) "$repo has no .github/workflows/architecture.yml: run sync-app-workflows.ps1 and merge its pull request"
+                # The page reads the architecture as anyone does, from the repository's public address: a repository
+                # the public cannot read has no application view, and that is its owner's choice, not a failure
+                # (cmdemo1-scorecard, 2026-10-12). Asked without a credential, as the dashboard's deployment asks.
+                $visible = 0
+                try { $visible = [int] (Invoke-WebRequest -Uri "https://github.com/$repo" -Method Head -TimeoutSec 30 -SkipHttpErrorCheck -MaximumRedirection 0 -ErrorAction Stop).StatusCode } catch { $visible = 0 }
+                if ($visible -eq 404) { "$([string] $d.name) (private repository: no application view)"; continue }
+                # A repository takes the view by taking the workflow: one without it has no application view and is
+                # not behind (Jeffrey, 2026-10-13, on jpcom, whose website's repository is not the kit's to change).
+                if (-not (Find-RepoFile $repo '.github/workflows/architecture.yml')) { "$([string] $d.name) (no workflow Architecture: no application view)"; continue }
                 Assert-That ([bool] (Find-RepoFile $repo '.github/architecture/write-architecture.ps1')) "$repo has no .github/architecture/write-architecture.ps1, which its workflow Architecture runs: run sync-app-workflows.ps1 and merge its pull request"
                 # A repository that has not built since it got the workflow has no branch yet: it is not behind.
                 $PSNativeCommandUseErrorActionPreference = $false
@@ -1196,7 +1204,7 @@ $checks = [ordered] @{
                 $versions = @(if ($code -eq 0) { $listed | Where-Object { $_ -cmatch '\.svg$' } })
                 "$([string] $d.name) ($($versions.Count))"
             })
-        "workflow Architecture in every application's repository; released versions with a diagram: $($published -join ', ')"
+        "application view, released versions with a diagram: $($published -join ', ')"
     }
 }
 
@@ -1255,8 +1263,11 @@ function Write-Check([hashtable] $Check, [string] $Note = '') {
 
 if (-not (Wait-QuietSpace $WaitMinutes)) {
     if ($WaitOnly) { Write-Host "Octopus is still busy after $WaitMinutes minutes; the checks wait on."; exit 0 }
-    Write-Fail "the space did not become quiet in $WaitMinutes minutes"
-    exit 1
+    # Not a failure: a system that is deploying is not a system that lacks a capability (jpcom, 2026-10-13: its site's
+    # deployments take longer than the wait, and the run reported a failure without checking anything). The line
+    # starts with NOT CHECKED, which workflow capabilities reads: it then leaves the capability issue as it is.
+    Write-Host "NOT CHECKED: Octopus did not become quiet in $WaitMinutes minutes (deployments or runbook runs are in flight). No capability was checked, and this run says nothing about any; the next run checks."
+    exit 0
 }
 if ($WaitOnly) {
     Write-Host 'Octopus is quiet.'

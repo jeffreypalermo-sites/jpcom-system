@@ -32,6 +32,7 @@ jobs:
     outputs:
       outcome: ${{ steps.checks.outcome }}
       failed: ${{ steps.result.outputs.failed }}
+      checked: ${{ steps.result.outputs.checked }}
     steps:
       - uses: actions/checkout@v6.0.1
 
@@ -127,6 +128,8 @@ jobs:
           if [ "$OUTCOME" != "success" ]; then lines=$(grep -E '^(FAIL|[0-9]+ of)' "$REPORT" || tail -n 20 "$REPORT"); fi
           # Base64 keeps the lines one line of output.
           echo "failed=$(printf '%s' "$lines" | base64 -w0)" >> "$GITHUB_OUTPUT"
+          # A run that waited for Octopus in vain checked nothing (scripts/test-capabilities.ps1 says NOT CHECKED).
+          if grep -q '^NOT CHECKED' "$REPORT"; then echo "checked=false" >> "$GITHUB_OUTPUT"; else echo "checked=true" >> "$GITHUB_OUTPUT"; fi
 
   # After the capability checks, which wait until Octopus is quiet: a job in azure-read cannot sign in to Octopus.
   own:
@@ -191,6 +194,7 @@ jobs:
           CAPABILITIES_RESULT: ${{ needs.capabilities.result }}
           CAPABILITIES_OUTCOME: ${{ needs.capabilities.outputs.outcome }}
           CAPABILITIES_FAILED: ${{ needs.capabilities.outputs.failed }}
+          CAPABILITIES_CHECKED: ${{ needs.capabilities.outputs.checked }}
           OWN_RESULT: ${{ needs.own.result }}
           OWN_OUTCOME: ${{ needs.own.outputs.outcome }}
           OWN_FAILED: ${{ needs.own.outputs.failed }}
@@ -207,6 +211,11 @@ jobs:
           failed=$(unproven capabilities "$CAPABILITIES_RESULT" "$CAPABILITIES_OUTCOME" "$CAPABILITIES_FAILED"; unproven own "$OWN_RESULT" "$OWN_OUTCOME" "$OWN_FAILED")
           gh label create capability --color B60205 --description "A capability of the system is not proven" --force >/dev/null
           issue=$(gh issue list --label capability --state open --json number --jq '.[0].number // empty')
+          # Nothing failed and nothing was checked (Octopus stayed busy): the issue stays as it is, open or not.
+          if [ -z "$failed" ] && [ "${CAPABILITIES_CHECKED:-true}" = "false" ]; then
+            echo "The capabilities were not checked in this run: Octopus did not become quiet. The issue with label capability is left as it is." >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+            exit 0
+          fi
           if [ -z "$failed" ]; then
             if [ -n "$issue" ]; then
               gh issue close "$issue" --comment "All capabilities proven on $(date -u +%F) ($RUN_URL)."
