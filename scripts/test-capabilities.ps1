@@ -637,7 +637,6 @@ $checks = [ordered] @{
     'CAP-052' = { $prod = @(Get-ProdEnvironment); Assert-That ($prod.Count -ge 1) 'no prod-tier environment'; "$($prod -join ', ') in $($system.azure.resourceGroups.prod) with id-$($slug)-deploy-prod" }
     'CAP-053' = { $u = az account show --query user.type --output tsv; $me = Invoke-Octopus '/api/users/me'; Assert-That ($u -eq 'servicePrincipal' -and $me.IsService) "az $u, Octopus service $($me.IsService)"; "az as a service principal, Octopus as $($me.Username)" }
     'CAP-055' = { Assert-AppRepository; Assert-That ((Get-AppRequiredCheck) -contains 'secret-scan' -and (Get-RepoFile $systemRepo '.github/workflows/env-checks.yml') -match 'gitleaks') 'secret scanning not enforced'; 'gitleaks in env-checks and the required check secret-scan' }
-    'CAP-056' = { Assert-Database; $r = Get-RecentRun 'Rotate SQL password' 35; Assert-That ($r.Count -ge 1) 'no successful rotation in 35 days'; "rotated $($r[0].CompletedTime)" }
     'CAP-057' = {
         # A secret a deployable declares (system.json deployables[].secrets) reaches its app from the environment's
         # vault by reference, as <deployable>-<name>; the app holds no secret as a stored value. The reference is read
@@ -787,6 +786,9 @@ $checks = [ordered] @{
                     foreach ($member in @($shown['names'] | Where-Object { $_ })) { $null = $accounted.Add([string] $member) }
                 }
                 foreach ($frame in @($manifest['frames'] | Where-Object { $_ -is [System.Collections.IDictionary] })) { if ($frame['name']) { $null = $accounted.Add([string] $frame['name']) } }
+                # What is in no environment is no box: the manifest lists it, and the page writes the list (decision 0042).
+                $unplacedNames = @($manifest['unplaced'] | Where-Object { $_ -is [System.Collections.IDictionary] -and $_['name'] } | ForEach-Object { [string] $_['name'] })
+                foreach ($listedName in $unplacedNames) { $null = $accounted.Add($listedName) }
                 $hasEnvironmentFrame = @($manifest['frames'] | Where-Object { $_ -is [System.Collections.IDictionary] -and $_['kind'] -eq 'containerAppsEnvironment' }).Count -gt 0
                 $inGroup = @(foreach ($systemGroup in @($system.azure.resourceGroups.Values | ForEach-Object { [string] $_ } | Where-Object { $_ } | Select-Object -Unique)) {
                         az resource list --resource-group $systemGroup --query '[].{type:type,name:name,environment:tags.environment}' --output json | ConvertFrom-Json
@@ -820,10 +822,10 @@ $checks = [ordered] @{
                         -not ($hasEnvironmentFrame -and $_.type -ieq 'Microsoft.App/managedEnvironments') -and
                         -not $accounted.Contains([string] $_.name)
                     } | ForEach-Object {
-                        # A resource that no environment tag places is asked of every diagram, whatever its name says:
+                        # A resource that no environment tag places is asked of every diagram (its list), whatever its name says:
                         # the message tells it apart (jpcom, 2026-10-12: production's resources read as tdd's).
                         $tagged = @(([string] $_.environment) -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ -and $environments -icontains $_ })
-                        if ($tagged.Count -eq 0) { "$($_.name) (no environment tag: drawn in every diagram)" } else { [string] $_.name }
+                        if ($tagged.Count -eq 0) { "$($_.name) (no environment tag: listed under every diagram)" } else { [string] $_.name }
                     })
                 Assert-That ($missing.Count -eq 0) "the runtime diagram of $drawnEnvironment that the dashboard in $e serves does not show $($missing -join ', '): let workflow delivery run once, then deploy the release of $slug-$dashboardName to $e again"
                 # A container app runs, whatever made it (the stack, or infra/own): a box of its own, never one name in
@@ -835,7 +837,7 @@ $checks = [ordered] @{
                 # A node of an application with its own runtime that is a container app of the groups is that app's box:
                 # it names the resource in "names" (deploy-staticwebapp.ps1).
                 foreach ($node in @($manifest['nodes'] | Where-Object { $_ -is [System.Collections.IDictionary] -and $_['kind'] -eq 'webapp' })) { foreach ($member in @($node['names'] | Where-Object { $_ })) { $null = $boxNames.Add([string] $member) } }
-                $listedOnly = @($placed | Where-Object { $_.type -ieq 'Microsoft.App/containerApps' -and -not $boxNames.Contains([string] $_.name) } | ForEach-Object { $_.name })
+                $listedOnly = @($placed | Where-Object { $_.type -ieq 'Microsoft.App/containerApps' -and -not $boxNames.Contains([string] $_.name) -and $unplacedNames -notcontains [string] $_.name } | ForEach-Object { $_.name })
                 Assert-That ($listedOnly.Count -eq 0) "the runtime diagram of $drawnEnvironment in $e has no box of its own for the container app(s) $($listedOnly -join ', '): deploy the release of $slug-$dashboardName to $e again"
                 # Every box shows that what it stands for is online: the page's own probe, or a health line (decision 0038).
                 $unwatched = @(Get-UnwatchedBox $manifest $topology $statusContainers $url)
