@@ -113,8 +113,9 @@
        "architecture", the public address where the repository of its deployable (deployables[].repository) publishes
        the logical architecture of each release (https://raw.githubusercontent.com/<org>/<repository>/architecture/
        <deployable>; <version>.json and <version>.svg, written by workflow Architecture of that repository). The page
-       zooms from the box into the diagram of the version that runs. Nothing is read or drawn here for it;
-       "applicationView": false on "system" in system.json leaves the address out.
+       zooms from the box into the diagram of the version that runs. Nothing is drawn here for it. A repository the
+       public cannot read (github.com answers 404 to a request without a credential) gets no address: its box is as
+       before. "applicationView": false on "system" in system.json leaves the address out of every box.
     3. The deployment, with the Static Web Apps CLI and the site's deployment token. The token is read from Azure
        when the step runs (the deploy identity may; the stack's deny settings keep everyone else from listing it),
        reaches the CLI through an environment variable, and is never stored, printed or passed as an argument.
@@ -734,7 +735,9 @@ function ConvertTo-RuntimeDiagram {
         [Parameter(Mandatory)] [string] $Environment,
         [hashtable] $DashboardUrl = @{},
         [hashtable] $ContainerApp = @{},
-        [hashtable] $Resource = @{}
+        [hashtable] $Resource = @{},
+        # Repositories of deployables that the public cannot read: their boxes name no architecture (decision 0041).
+        [string[]] $PrivateRepository = @()
     )
     $slug = [string] $System.system.slug
     $location = [string] $System.system.location
@@ -1509,12 +1512,14 @@ function ConvertTo-RuntimeDiagram {
     # The application view (decision 0041): a web app's and a container app's box says where the repository of its
     # deployable publishes the logical architecture of each release (branch "architecture", workflow Architecture of
     # templates/app), and the page zooms from the box into the diagram of the version that runs. Only for a deployable
-    # that names its repository, with names GitHub allows; "applicationView": false on "system" leaves it out.
+    # that names its repository, with names GitHub allows, and whose repository the public can read (the page reads it
+    # as anyone does: a private one answers 404, cmdemo1-scorecard, 2026-10-12); "applicationView": false on "system"
+    # leaves it out.
     $organization = [string] $System.system['githubOrg']
     if ($System.system['applicationView'] -ne $false -and $organization -cmatch '^[A-Za-z0-9][A-Za-z0-9-]{0,38}$') {
         $repositoryOf = @{}
         foreach ($declared in @($System.deployables | Where-Object { $_ -is [System.Collections.IDictionary] })) {
-            if ([string] $declared['name'] -cmatch '^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$' -and [string] $declared['repository'] -cmatch '^[A-Za-z0-9._-]{1,100}$' -and [string] $declared['repository'] -notin '.', '..') {
+            if ([string] $declared['name'] -cmatch '^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$' -and [string] $declared['repository'] -cmatch '^[A-Za-z0-9._-]{1,100}$' -and [string] $declared['repository'] -notin '.', '..' -and $PrivateRepository -inotcontains [string] $declared['repository']) {
                 $repositoryOf[[string] $declared['name']] = [string] $declared['repository']
             }
         }
@@ -1800,6 +1805,23 @@ function Write-DatabaseDiagram {
     return $result
 }
 
+function Find-PrivateRepository {
+    # The repositories of the system's applications that the public cannot read, by name: the page reads an
+    # application's architecture from its repository's public address, so a private one has no application view.
+    # Asked as anyone asks, with no credential: github.com answers 200 for a public repository and 404 for one that is
+    # private or does not exist. Any other answer, and no answer, tells nothing: the repository is then taken as
+    # public, and its view says that no diagram is published.
+    param([Parameter(Mandatory)] [hashtable] $System)
+    $organization = [string] $System.system['githubOrg']
+    if ($organization -cnotmatch '^[A-Za-z0-9][A-Za-z0-9-]{0,38}$') { return @() }
+    $names = @($System.deployables | Where-Object { $_ -is [System.Collections.IDictionary] -and $_['hosting'] -notin 'staticwebapp', 'storagewebsite' -and [string] $_['repository'] -cmatch '^[A-Za-z0-9._-]{1,100}$' -and [string] $_['repository'] -notin '.', '..' } | ForEach-Object { [string] $_['repository'] } | Select-Object -Unique)
+    return @(foreach ($name in $names) {
+            $status = 0
+            try { $status = [int] (Invoke-WebRequest -Uri "https://github.com/$organization/$name" -Method Head -TimeoutSec 30 -SkipHttpErrorCheck -MaximumRedirection 0 -ErrorAction Stop).StatusCode } catch { $status = 0 }
+            if ($status -eq 404) { $name }
+        })
+}
+
 function Get-PlantUmlJar {
     # The PlantUML release jar of the pinned version, from the project's GitHub releases, into the folder; it fails when
     # its SHA-256 is not the pinned one. Returns the path and the seconds the download took.
@@ -1835,7 +1857,8 @@ function Write-RuntimeDiagram {
         [Parameter(Mandatory)] [string] $Version,
         [hashtable] $DashboardUrl = @{},
         [hashtable] $ContainerApp = @{},
-        [hashtable] $Resource = @{}
+        [hashtable] $Resource = @{},
+        [string[]] $PrivateRepository = @()
     )
     # The package carries the sample's runtime/ (and so may an older release): none of it may outlive this deployment.
     $runtime = Join-Path $Folder 'runtime'
@@ -1844,7 +1867,7 @@ function Write-RuntimeDiagram {
     $diagrams = [ordered] @{}
     foreach ($environment in @($System.environments)) {
         $name = [string] $environment.name
-        $diagram = ConvertTo-RuntimeDiagram -System $System -Topology $Topology -Environment $name -DashboardUrl $DashboardUrl -ContainerApp $ContainerApp -Resource $Resource
+        $diagram = ConvertTo-RuntimeDiagram -System $System -Topology $Topology -Environment $name -DashboardUrl $DashboardUrl -ContainerApp $ContainerApp -Resource $Resource -PrivateRepository $PrivateRepository
         $diagram.manifest.generated = $Topology.generated
         $diagram.manifest.plantuml = $Version
         $diagrams[$name] = $diagram
@@ -2206,7 +2229,9 @@ $runtimeProblem = $null
 try {
     $jar = Get-PlantUmlJar -Version $plantUmlVersion -Sha256 $plantUmlSha256 -Folder $tools
     Write-Host ('PlantUML {0} downloaded from GitHub in {1:0.0} s ({2:0.0} MB, SHA-256 as pinned); {3}' -f $plantUmlVersion, $jar.seconds, $jar.megabytes, $javaVersion)
-    $rendered = Write-RuntimeDiagram -System $system -Topology $topology -Folder $folder -Jar $jar.path -Version $plantUmlVersion -DashboardUrl @{ $environmentName = $url } -ContainerApp $pageAddresses -Resource $tierResources
+    $privateRepositories = @(if ($system.system['applicationView'] -ne $false) { Find-PrivateRepository -System $system })
+    if ($privateRepositories.Count -gt 0) { Write-Host "runtime/: no application view for $($privateRepositories -join ', '): the public cannot read the repository, and the page reads the architecture from its public address." }
+    $rendered = Write-RuntimeDiagram -System $system -Topology $topology -Folder $folder -Jar $jar.path -Version $plantUmlVersion -DashboardUrl @{ $environmentName = $url } -ContainerApp $pageAddresses -Resource $tierResources -PrivateRepository $privateRepositories
     $rendered.log | ForEach-Object { Write-Host $_ }
     Write-Host ('runtime/: {0} diagram(s) rendered and checked in {1:0.0} s ({2:0} KB of SVG)' -f $rendered.count, $rendered.seconds, $rendered.kilobytes)
 

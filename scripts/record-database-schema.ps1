@@ -27,7 +27,11 @@
     table, 600 references. What is left out is counted in the record ("truncated", "moreColumns").
 
     The login is the one "Migrate database" uses: the server's administrator, its password from the environment's
-    vault, and a firewall rule for the worker's address for the duration of the step. The step only reads: the
+    vault, and a firewall rule for the worker's address for the duration of the step. On runtime aks-argocd, which
+    takes this same file (templates/system-aks/shared-files.txt), SQL Server runs in the environment's namespace:
+    the step runs on the worker in the cluster and logs in as sa with the password of Secret db-credentials, with
+    no firewall rule and nothing of Azure. Which of the two it is, the project says: only that runtime has the
+    variable Database.Name. The step only reads: the
     catalog views sys.tables, sys.columns, sys.types, sys.indexes, sys.foreign_keys and sys.partitions. A row count
     is what sys.partitions says, which SQL Server keeps without counting the rows.
 
@@ -72,6 +76,8 @@ $slug = [string] $OctopusParameters['System.Slug']
 $resourceGroup = [string] $OctopusParameters['Azure.ResourceGroup']
 $ruleName = "octopus-schema-$(([string] $OctopusParameters['Octopus.Deployment.Id']) -replace '[^A-Za-z0-9-]', '-')"
 $again = "Deploy $deployable $version to $environmentName again to record it."
+# Runtime aks-argocd names its database in a variable of the project; the other runtime reads it from the stack.
+$inCluster = [bool] [string] $OctopusParameters['Database.Name']
 
 function ConvertTo-SchemaText {
     # A name of the database as the record writes it: letters, digits, space and . _ - only, any other character as
@@ -319,25 +325,37 @@ $notRead = $null
 $opened = $false
 $server = ''
 try {
-    $outputs = (az stack group show --name "stack-$slug-$environmentName" --resource-group $resourceGroup --output json | ConvertFrom-Json -AsHashtable).outputs
-    $server = [string] $outputs.sqlServerName.value
-    $serverFqdn = [string] $outputs.sqlServerFqdn.value
-    $database = [string] $outputs.databaseName.value
-    $login = [string] $outputs.sqlAdminLogin.value
-    $vault = [string] $outputs.keyVaultName.value
-
-    $workerIp = (Invoke-RestMethod -Uri 'https://api.ipify.org').ToString().Trim()
-    Write-Host "Opening $server to the worker ($workerIp) as rule $ruleName"
-    az sql server firewall-rule create --resource-group $resourceGroup --server $server --name $ruleName `
-        --start-ip-address $workerIp --end-ip-address $workerIp --output none
-    $opened = $true
-
-    $password = ([string] (az keyvault secret show --vault-name $vault --name sql-admin-password --query value --output tsv)).Trim()
     $builder = [System.Data.SqlClient.SqlConnectionStringBuilder]::new()
-    $builder['Data Source'] = "tcp:$serverFqdn,1433"
+    if ($inCluster) {
+        # Runtime aks-argocd: SQL Server is a StatefulSet of the environment's namespace, reachable only from the
+        # cluster, where this step runs. The login is the migration's: sa, with the password of Secret db-credentials.
+        $namespace = "$slug-$environmentName"
+        $database = [string] $OctopusParameters['Database.Name']
+        $secret = (kubectl get secret db-credentials --namespace $namespace --output json | ConvertFrom-Json).data
+        $builder['Data Source'] = "tcp:db-localhost.$namespace.svc.cluster.local,1433"
+        $builder['User ID'] = 'sa'
+        $builder['Password'] = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($secret.'sa-password'))
+        # SQL Server's own certificate is self-signed.
+        $builder['TrustServerCertificate'] = $true
+    }
+    else {
+        $outputs = (az stack group show --name "stack-$slug-$environmentName" --resource-group $resourceGroup --output json | ConvertFrom-Json -AsHashtable).outputs
+        $server = [string] $outputs.sqlServerName.value
+        $serverFqdn = [string] $outputs.sqlServerFqdn.value
+        $database = [string] $outputs.databaseName.value
+        $vault = [string] $outputs.keyVaultName.value
+
+        $workerIp = (Invoke-RestMethod -Uri 'https://api.ipify.org').ToString().Trim()
+        Write-Host "Opening $server to the worker ($workerIp) as rule $ruleName"
+        az sql server firewall-rule create --resource-group $resourceGroup --server $server --name $ruleName `
+            --start-ip-address $workerIp --end-ip-address $workerIp --output none
+        $opened = $true
+
+        $builder['Data Source'] = "tcp:$serverFqdn,1433"
+        $builder['User ID'] = [string] $outputs.sqlAdminLogin.value
+        $builder['Password'] = ([string] (az keyvault secret show --vault-name $vault --name sql-admin-password --query value --output tsv)).Trim()
+    }
     $builder['Initial Catalog'] = $database
-    $builder['User ID'] = $login
-    $builder['Password'] = $password
     $builder['Encrypt'] = $true
     $builder['Connect Timeout'] = 30
     # The firewall rule takes a moment to hold, and a database that paused since the migration resumes on a login.
