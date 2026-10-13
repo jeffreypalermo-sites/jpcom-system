@@ -716,17 +716,15 @@ function ConvertTo-RuntimeDiagram {
     #   supporting                  this environment's resources of the tier's group, inside its boundary
     #   supporting_edge             those of the Front Door's group, inside rg_edge
     #   rg_<n>, supporting_<n>      those of any other group: its boundary, and the box inside it
-    #   unplaced                    "In no environment": the system's resources with no environment tag, or a tag
-    #                               that names no environment of system.json, in every diagram; each box says its
-    #                               group and its tag (or that it has none)
-    #   res_<n>                     one box per type (in "unplaced", per type, group and tag), numbered in the order of
-    #                               the types' names; kind "resource" in the manifest, with its "names", "group",
-    #                               "environmentTag" in "unplaced", "ids" (the members' resource ids), and its page in
-    #                               the Azure portal (for several, the group's)
-    #   cax_<n>                     a container app system.json does not declare, from the list: kind "containerapp",
-    #                               no deployable and no health path, its address where it has a public one, and its
-    #                               id; in its Container Apps environment's box when it is of this environment, in
-    #                               "unplaced" otherwise. The page probes its address as a declared one's
+    #   res_<n>                     one box per type, numbered in the order of the types' names; kind "resource" in
+    #                               the manifest, with its "names", "group", "ids" (the members' resource ids), and its
+    #                               page in the Azure portal (for several, the group's)
+    #   cax_<n>                     a container app of this environment that system.json does not declare, from the
+    #                               list: kind "containerapp", no deployable and no health path, its address where it
+    #                               has a public one, and its id, in its Container Apps environment's box. The page
+    #                               probes its address as a declared one's
+    # The system's resources with no environment tag, or a tag that names no environment of system.json, are no box:
+    # the manifest lists them as "unplaced", in every environment's, and the page writes the list under the diagram.
     # The browser cannot ask a resource: its box has a slot of one line, where the page says what Azure Resource Health
     # last said of its members (containers.json on branch status, by "ids"). The static sites and the database get
     # "ids" too, from the same list (the database is a child of its server, found by its name).
@@ -1197,7 +1195,7 @@ function ConvertTo-RuntimeDiagram {
         $box = [pscustomobject] @{
             Deployable = ''; Address = $address; App = $record.Name; Environment = $domain; Region = $region; Database = $false; Alias = "cax_$undeclared"
             Words = $words; Links = $(if ($address) { [ordered] @{ site = $address } } else { Get-PortalLink $record.Id }); EnvironmentId = $record.ManagedEnvironment; Group = ''; Tag = $record.Tag
-            Id = $record.Id; HealthPath = ''
+            Id = $record.Id; HealthPath = ''; ResourceGroup = $record.Group; Why = $record.Words
         }
         if ($record.Placement -eq 'here') { $containers = @($containers) + $box } else { $unplacedApps.Add($box) }
     }
@@ -1316,20 +1314,26 @@ function ConvertTo-RuntimeDiagram {
         $lines.Add('  }')
     }
 
-    # The system's resources in no environment, in every environment's diagram, each saying its group and its tag.
-    if ($unplaced.Count -gt 0 -or $unplacedApps.Count -gt 0) {
-        $holder = "$($unplaced.Count + $unplacedApps.Count) resource(s) of the system that no environment tag places"
-        $lines.Add("  Deployment_Node(unplaced, `"In no environment`", $(Get-Quoted $holder), `"`", `$tags=`"region`") {")
-        Add-Frame 'unplaced' 'sub.unplaced' 'systemResources' 'In no environment' (Get-PortalLink $subscription)
-        foreach ($container in $unplacedApps) {
-            $appName = Get-Reported $container.App 60
-            $lines.Add("    Container($($container.Alias), $(Get-Quoted $appName), $(Get-Quoted $container.Words), $(Get-Quoted $containerSlot))")
-            $node = [ordered] @{ alias = $container.Alias; qualifiedName = "sub.unplaced.$($container.Alias)"; kind = 'containerapp'; name = $appName; url = $(if ($container.Address) { $container.Address } else { $null }); environmentTag = $(if ($container.Tag) { $container.Tag } else { $null }) }
-            if ($container.Id) { $node.ids = @($container.Id) }
-            Add-Node $node $container.Links
-        }
-        Add-ResourceBox $lines '  ' 'sub.unplaced' @($unplaced)
-        $lines.Add('  }')
+    # The system's resources in no environment are no part of the picture: the manifest lists them ("unplaced"), and the
+    # page writes the list under the diagram of every environment (decision 0042). As boxes they were a frame that
+    # no line reaches, as large as the system itself, and the layout engine pushed the picture out of shape around it.
+    # Each entry: the resource's name, what it is, its group, why it is in no environment (no tag, or a tag that
+    # names none), its id for what Resource Health said of it, its page in the portal, and a container app's address.
+    $unplacedList = [Collections.Generic.List[object]]::new()
+    foreach ($container in $unplacedApps) {
+        $entry = [ordered] @{ name = Get-Reported $container.App 60; type = [string] (& $labelOf 'microsoft.app/containerapps'); group = Get-Reported $container.ResourceGroup 90; words = [string] $container.Why }
+        if ($container.Id) { $entry.ids = @($container.Id) }
+        if ($container.Address) { $entry.url = $container.Address }
+        $links = [ordered] @{}
+        if ($container.Id) { $links.portal = Get-PortalAddress -ResourceId $container.Id -TenantId $tenantId }
+        if ($container.Address) { $links.site = $container.Address }
+        if ($links.Count -gt 0) { $entry.links = $links }
+        $unplacedList.Add($entry)
+    }
+    foreach ($record in @($unplaced | Sort-Object { & $labelOf $_.Key }, Name)) {
+        $entry = [ordered] @{ name = Get-Reported $record.Name 60; type = [string] (& $labelOf $record.Key); group = Get-Reported $record.Group 90; words = [string] $record.Words }
+        if ($record.Id) { $entry.ids = @($record.Id); $entry.links = [ordered] @{ portal = Get-PortalAddress -ResourceId $record.Id -TenantId $tenantId } }
+        $unplacedList.Add($entry)
     }
     $lines.Add('}')
 
@@ -1479,6 +1483,22 @@ function ConvertTo-RuntimeDiagram {
         if ($hasDatabase -and $container.Database) { Add-Edge $container.Alias 'sqldb' 'sql' 'reads and writes' 'TCP 1433' $true }
     }
     $lines.AddRange($edgeLines)
+    # The frames that no line reaches (the supporting resources, what is in no environment, a group's resources) are
+    # laid out by a hidden line each, from the last thing the browser calls to the frame's first box. Without it the
+    # layout engine ranks their boxes with the browser, pushes the browser to the bottom of the picture, far from the
+    # address it calls, and leads its line around the frames (cmdemo2, 2026-10-12). With it the frames stand under the
+    # system, and the browser beside what it calls. A hidden line is no relationship of the manifest.
+    $called = @($edges | Where-Object { $_.from -eq 'browser' -and -not $_.id.StartsWith("$($_.to)-to-") } | ForEach-Object { [string] $_.to })
+    if ($called.Count -gt 0) {
+        $connected = [Collections.Generic.HashSet[string]]::new([string[]] @($edges | ForEach-Object { [string] $_.from; [string] $_.to }))
+        $hinted = [Collections.Generic.HashSet[string]]::new()
+        foreach ($box in @($nodes | Where-Object { $_['kind'] -in 'resource', 'containerapp' -and -not $connected.Contains([string] $_['alias']) })) {
+            $frame = ([string] $box['qualifiedName']) -replace '\.[^.]+$', ''
+            # One line per frame; a frame that holds a box a line reaches is placed by that line.
+            if (@($nodes | Where-Object { ([string] $_['qualifiedName']) -replace '\.[^.]+$', '' -eq $frame -and $connected.Contains([string] $_['alias']) }).Count -gt 0) { continue }
+            if ($hinted.Add($frame)) { $lines.Add("Lay_D($($called[-1]), $([string] $box['alias']))") }
+        }
+    }
     $lines.Add('@enduml')
     # The browser's box leads where a browser goes first: the first public address the diagram draws an arrow to.
     # With no App Service app (a system of container apps only) it is the first container app's address.
@@ -1503,16 +1523,18 @@ function ConvertTo-RuntimeDiagram {
         }
     }
 
+    $manifest = [ordered] @{
+        environment = $Environment
+        svg         = "$Environment.svg"
+        nodes       = @($nodes)
+        regions     = @($regionManifest)
+        frames      = @($frames)
+        edges       = @($edges)
+    }
+    if ($unplacedList.Count -gt 0) { $manifest.unplaced = @($unplacedList) }
     return [ordered] @{
         puml     = ($lines -join "`n") + "`n"
-        manifest = [ordered] @{
-            environment = $Environment
-            svg         = "$Environment.svg"
-            nodes       = @($nodes)
-            regions     = @($regionManifest)
-            frames      = @($frames)
-            edges       = @($edges)
-        }
+        manifest = $manifest
     }
 }
 
