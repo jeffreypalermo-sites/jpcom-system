@@ -100,7 +100,17 @@
       "hosting": "own",
       "port": 8080,
       "healthPath": "/_health/ready",
-      "buildPath": "/_build"
+      "buildPath": "/_build",
+      "telemetryPath": "/_telemetry",
+      "trafficPaths": [
+        "/",
+        "/2008/07/the-onion-architecture-part-1/",
+        "/feed/",
+        "/tag/onion-architecture/",
+        "/search/?q=onion",
+        "/_assets/site.css",
+        "/?p=945"
+      ]
     },
     {
       "name": "dashboard",
