@@ -173,7 +173,7 @@ resource "octopusdeploy_process_step" "sign_off" {
   execution_properties = {
     "Octopus.Action.RunOnServer"                       = "false"
     "Octopus.Action.Manual.Instructions"               = "Sign off #{Octopus.Project.Name} #{Octopus.Release.Number} for #{Octopus.Environment.Name}: check the earlier environments, then Proceed with a note, or Abort."
-    "Octopus.Action.Manual.ResponsibleTeamIds"         = local.sign_off_team_id
+    "Octopus.Action.Manual.ResponsibleTeamIds"         = local.sign_off_team_ids[each.key]
     "Octopus.Action.Manual.BlockConcurrentDeployments" = "False"
   }
 }
