@@ -1,5 +1,6 @@
 # Who signs off: the space team "<slug> approvers" is the responsible team of every "Sign-off" step (the first step in
-# every environment after the first, in every project). Shared by both runtimes (templates/system-aks/shared-files.txt).
+# every environment after the first, in every project); a deployable with pipelineSignOff adds a second (below).
+# Shared by both runtimes (templates/system-aks/shared-files.txt).
 #
 # Members: the people in system.json octopus.approvers (Octopus usernames or email addresses; an empty list, or no key,
 # means only automation signs off) and the operator identity octopus.operator ("ai-ops" when left out), which answers a
@@ -67,4 +68,58 @@ resource "octopusdeploy_scoped_user_role" "approvers" {
   team_id      = octopusdeploy_team.approvers.id
   space_id     = local.system.octopus.spaceId
   user_role_id = one(data.octopusdeploy_user_roles.approver.user_roles).id
+}
+
+# The pipeline's own sign-off (decision 0048): a deployable with "pipelineSignOff": true in system.json may also be
+# signed off by the system's service account <slug>-github, which a workflow of the system repository then answers
+# with a reason naming its run. The team "<slug> pipeline sign-off" holds that account alone and is a second
+# responsible team of those deployables' Sign-off only; every other Sign-off stays the approvers' alone. Its role is
+# Project viewer, as the approvers', in those deployables' projects only. The team exists only while a deployable
+# asks for it; octopus.approvers itself never names the service account (scripts/test-system.ps1).
+
+locals {
+  pipeline_sign_off = toset([for d in local.system.deployables : d.name if try(d.pipelineSignOff, false) == true])
+  pipeline_login    = "${local.slug}-github"
+}
+
+data "octopusdeploy_users" "pipeline" {
+  count = length(local.pipeline_sign_off) > 0 ? 1 : 0
+
+  filter = local.pipeline_login
+  take   = 100
+
+  lifecycle {
+    postcondition {
+      condition     = length([for u in self.users : u.id if lower(u.username) == local.pipeline_login]) == 1
+      error_message = "No single Octopus user has the username '${local.pipeline_login}', the system's service account that a deployable with pipelineSignOff lets sign off."
+    }
+  }
+}
+
+resource "octopusdeploy_team" "pipeline_sign_off" {
+  count = length(local.pipeline_sign_off) > 0 ? 1 : 0
+
+  name        = "${local.slug} pipeline sign-off"
+  description = "Signs off the promotions of ${join(", ", sort(tolist(local.pipeline_sign_off)))} (step Sign-off) as the pipeline, with a reason naming the workflow run: system.json deployables[].pipelineSignOff, decision 0048. Its only member is ${local.pipeline_login}. Managed by octopus/ of ${local.repository}."
+  space_id    = local.system.octopus.spaceId
+  users       = [one([for u in data.octopusdeploy_users.pipeline[0].users : u.id if lower(u.username) == local.pipeline_login])]
+}
+
+resource "octopusdeploy_scoped_user_role" "pipeline_sign_off" {
+  count = length(local.pipeline_sign_off) > 0 ? 1 : 0
+
+  team_id      = octopusdeploy_team.pipeline_sign_off[0].id
+  space_id     = local.system.octopus.spaceId
+  user_role_id = one(data.octopusdeploy_user_roles.approver.user_roles).id
+  project_ids  = [for name in sort(tolist(local.pipeline_sign_off)) : octopusdeploy_project.deployable[name].id]
+}
+
+locals {
+  # The responsible teams of each deployable's Sign-off, as Octopus stores them: team ids joined by commas.
+  sign_off_team_ids = {
+    for name, d in local.deployables : name => join(",", concat(
+      [local.sign_off_team_id],
+      contains(local.pipeline_sign_off, name) ? [octopusdeploy_team.pipeline_sign_off[0].id] : [],
+    ))
+  }
 }

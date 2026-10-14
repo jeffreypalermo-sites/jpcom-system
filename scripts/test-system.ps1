@@ -98,6 +98,14 @@ foreach ($name in $deployableNames) {
     Test-Rule "deployable $name is not 'system'" ($name -cne 'system') 'the Octopus project <slug>-system is the environments project'
 }
 Test-Rule 'deployable names unique' (@($deployableNames | Select-Object -Unique).Count -eq $deployableNames.Count)
+
+# deployables[].pipelineSignOff (decision 0048): true lets the system's service account <slug>-github answer that
+# deployable's Sign-off too, as the only member of the team "<slug> pipeline sign-off" (octopus/approvers.tf); a
+# workflow of this repository then promotes it with a reason naming its run. Every other deployable keeps a person's
+# or the operator's sign-off.
+foreach ($deployable in @($system.deployables | Where-Object { $_ -is [Collections.IDictionary] -and $_.ContainsKey('pipelineSignOff') })) {
+    Test-Rule "deployable $($deployable.name) pipelineSignOff" ($deployable.pipelineSignOff -is [bool]) 'true or false: whether the service account may answer the Sign-off of this deployable (decision 0048)'
+}
 foreach ($deployable in @($system.deployables)) {
     # Optional: the dotnet test filter of the acceptance tests after a deployment (variable AcceptanceTests.Filter),
     # conditions <property><operator><value> (operators = != ~ !~) joined by & or |, parentheses allowed. Without it

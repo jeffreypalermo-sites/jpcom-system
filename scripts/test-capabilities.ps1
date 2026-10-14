@@ -498,7 +498,14 @@ $checks = [ordered] @{
             Assert-That ($s.Name -eq 'Sign-off' -and $s.Actions[0].ActionType -eq 'Octopus.Manual') "$project does not start with Sign-off"
             $responsible = $s.Actions[0].Properties.PSObject.Properties['Octopus.Action.Manual.ResponsibleTeamIds']
             $responsibleIds = if ($responsible) { [string] $responsible.Value } else { '' }
-            Assert-That ($responsibleIds -eq $team.Id) "the Sign-off of $project is for '$responsibleIds', not for team '$teamName' ($($team.Id))"
+            # A deployable with pipelineSignOff (decision 0048) has a second responsible team, "<slug> pipeline
+            # sign-off"; any other Sign-off has the approvers alone.
+            $ids = @($responsibleIds -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+            $pipeline = $project -ne $systemProject -and @($system.deployables | Where-Object { "$slug-$($_.name)" -eq $project -and $_['pipelineSignOff'] -eq $true }).Count -gt 0
+            $pipelineTeam = if ($pipeline) { @((Invoke-Octopus "/api/$space/teams?partialName=$([uri]::EscapeDataString("$slug pipeline sign-off"))&take=100").Items | Where-Object { $_.Name -eq "$slug pipeline sign-off" -and $_.SpaceId -eq $space }) | Select-Object -First 1 }
+            $want = @($team.Id) + @(if ($pipelineTeam) { $pipelineTeam.Id })
+            Assert-That (-not $pipeline -or $null -ne $pipelineTeam) "$project has pipelineSignOff, and the space has no team '$slug pipeline sign-off'"
+            Assert-That ((@($ids | Sort-Object) -join ',') -eq (@($want | Sort-Object) -join ',')) "the Sign-off of $project is for '$responsibleIds', not for $(if ($pipeline) { "teams '$teamName' and '$slug pipeline sign-off'" } else { "team '$teamName'" }) ($($want -join ','))"
         }
         Assert-That ((Get-RepoFile $systemRepo 'octopus/projects.tf') -match 'octopusdeploy_project_deployment_freeze') 'no freeze support'; "Sign-off first in both projects, for team '$teamName'; freezes from system.json"
     }
