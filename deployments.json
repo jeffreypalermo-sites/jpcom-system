@@ -1,0 +1,91 @@
+{
+  "generated": "2026-10-15T22:38:56Z",
+  "system": "jpcom",
+  "octopus": "https://clearmeasure.octopus.app/app#/Spaces-375",
+  "deployments": [],
+  "recent": [
+    {
+      "project": "jpcom-web",
+      "release": "1.0.98",
+      "environment": "tdd",
+      "result": "succeeded",
+      "finished": "2026-10-15T22:07:10Z",
+      "startedBy": "jpcom-github",
+      "url": "https://clearmeasure.octopus.app/app#/Spaces-375/tasks/ServerTasks-12047080"
+    },
+    {
+      "project": "jpcom-web",
+      "release": "1.0.96",
+      "environment": "prod",
+      "result": "succeeded",
+      "finished": "2026-10-15T21:38:16Z",
+      "startedBy": "ai-ops",
+      "url": "https://clearmeasure.octopus.app/app#/Spaces-375/tasks/ServerTasks-12046814"
+    },
+    {
+      "project": "jpcom-web",
+      "release": "1.0.96",
+      "environment": "uat",
+      "result": "succeeded",
+      "finished": "2026-10-15T20:48:43Z",
+      "startedBy": "ai-ops",
+      "url": "https://clearmeasure.octopus.app/app#/Spaces-375/tasks/ServerTasks-12046559"
+    },
+    {
+      "project": "jpcom-system",
+      "release": "1.0.28",
+      "environment": "prod",
+      "result": "succeeded",
+      "finished": "2026-10-14T17:21:02Z",
+      "startedBy": "ai-ops",
+      "url": "https://clearmeasure.octopus.app/app#/Spaces-375/tasks/ServerTasks-12038879"
+    },
+    {
+      "project": "jpcom-system",
+      "release": "1.0.28",
+      "environment": "uat",
+      "result": "succeeded",
+      "finished": "2026-10-14T17:14:16Z",
+      "startedBy": "ai-ops",
+      "url": "https://clearmeasure.octopus.app/app#/Spaces-375/tasks/ServerTasks-12038845"
+    },
+    {
+      "project": "jpcom-system",
+      "release": "1.0.28",
+      "environment": "tdd",
+      "result": "succeeded",
+      "finished": "2026-10-14T17:07:43Z",
+      "startedBy": "jpcom-github",
+      "url": "https://clearmeasure.octopus.app/app#/Spaces-375/tasks/ServerTasks-12038822"
+    },
+    {
+      "project": "jpcom-dashboard",
+      "release": "1.0.12",
+      "environment": "prod",
+      "result": "succeeded",
+      "finished": "2026-10-13T16:16:25Z",
+      "startedBy": "ai-ops",
+      "url": "https://clearmeasure.octopus.app/app#/Spaces-375/tasks/ServerTasks-12031692"
+    },
+    {
+      "project": "jpcom-dashboard",
+      "release": "1.0.12",
+      "environment": "uat",
+      "result": "succeeded",
+      "finished": "2026-10-13T16:08:49Z",
+      "startedBy": "ai-ops",
+      "url": "https://clearmeasure.octopus.app/app#/Spaces-375/tasks/ServerTasks-12031655"
+    },
+    {
+      "project": "jpcom-dashboard",
+      "release": "1.0.12",
+      "environment": "tdd",
+      "result": "succeeded",
+      "finished": "2026-10-13T16:02:10Z",
+      "startedBy": "jpcom-github",
+      "url": "https://clearmeasure.octopus.app/app#/Spaces-375/tasks/ServerTasks-12031624"
+    }
+  ],
+  "freezes": [],
+  "missing": []
+}
