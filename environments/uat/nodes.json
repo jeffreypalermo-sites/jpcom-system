@@ -1,6 +1,5 @@
 {
   "web": {
-    "frontDoor": "https://jpcom-uat-duaxfxcuh2d4bsgb.z02.azurefd.net",
     "healthPath": "/_health/ready",
     "alivePath": "/_health/live",
     "versionPath": "/_version",
