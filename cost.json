@@ -1,0 +1,53 @@
+{
+  "generated": "2026-10-24T09:42:36Z",
+  "currency": "USD",
+  "asOf": "2026-10-23",
+  "system": {
+    "yesterday": 1.51,
+    "last7Days": 6.25,
+    "monthToDate": 63.43
+  },
+  "environments": [
+    {
+      "name": "tdd",
+      "yesterday": 0.0,
+      "last7Days": 0.0,
+      "monthToDate": 0.0,
+      "topServices": []
+    },
+    {
+      "name": "uat",
+      "yesterday": 0.0,
+      "last7Days": 0.0,
+      "monthToDate": 0.0,
+      "topServices": []
+    },
+    {
+      "name": "prod",
+      "yesterday": 0.0,
+      "last7Days": 0.0,
+      "monthToDate": 0.0,
+      "topServices": []
+    },
+    {
+      "name": "shared",
+      "yesterday": 1.51,
+      "last7Days": 6.25,
+      "monthToDate": 63.43,
+      "topServices": [
+        {
+          "name": "Azure Container Apps",
+          "monthToDate": 38.78
+        },
+        {
+          "name": "Azure Front Door Service",
+          "monthToDate": 21.44
+        },
+        {
+          "name": "Container Registry",
+          "monthToDate": 2.95
+        }
+      ]
+    }
+  ]
+}
