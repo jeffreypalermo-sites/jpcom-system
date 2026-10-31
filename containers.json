@@ -1,0 +1,775 @@
+{
+  "generated": "2026-10-31T21:39:36Z",
+  "environments": {
+    "tdd": {},
+    "uat": {},
+    "prod": {}
+  },
+  "resources": {
+    "apps": [
+      {
+        "type": "Microsoft.App/managedEnvironments",
+        "name": "cae-jpcom",
+        "environment": "",
+        "environments": [],
+        "location": "eastus2",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-apps/providers/Microsoft.App/managedEnvironments/cae-jpcom",
+        "group": "rg-jpcom-apps",
+        "address": "",
+        "managedEnvironment": "",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:04Z"
+        }
+      }
+    ],
+    "nonprod": [
+      {
+        "type": "Microsoft.App/containerApps",
+        "name": "ca-jpcom-tdd-web-eus2",
+        "environment": "",
+        "environments": [],
+        "location": "eastus2",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-nonprod/providers/Microsoft.App/containerApps/ca-jpcom-tdd-web-eus2",
+        "group": "rg-jpcom-nonprod",
+        "address": "https://ca-jpcom-tdd-web-eus2.whitehill-0f16c6d6.eastus2.azurecontainerapps.io",
+        "managedEnvironment": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-nonprod/providers/Microsoft.App/managedEnvironments/cae-jpcom-tdd-eus2",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:11Z"
+        }
+      },
+      {
+        "type": "Microsoft.App/containerApps",
+        "name": "ca-jpcom-uat-web-eus2",
+        "environment": "",
+        "environments": [],
+        "location": "eastus2",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-nonprod/providers/Microsoft.App/containerApps/ca-jpcom-uat-web-eus2",
+        "group": "rg-jpcom-nonprod",
+        "address": "https://ca-jpcom-uat-web-eus2.icyhill-a16863b8.eastus2.azurecontainerapps.io",
+        "managedEnvironment": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-nonprod/providers/Microsoft.App/managedEnvironments/cae-jpcom-uat-eus2",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:11Z"
+        }
+      },
+      {
+        "type": "Microsoft.App/containerApps",
+        "name": "ca-jpcom-uat-web-gwc",
+        "environment": "",
+        "environments": [],
+        "location": "germanywestcentral",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-nonprod/providers/Microsoft.App/containerApps/ca-jpcom-uat-web-gwc",
+        "group": "rg-jpcom-nonprod",
+        "address": "https://ca-jpcom-uat-web-gwc.grayhill-5fff05d0.germanywestcentral.azurecontainerapps.io",
+        "managedEnvironment": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-nonprod/providers/Microsoft.App/managedEnvironments/cae-jpcom-uat-gwc",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:11Z"
+        }
+      },
+      {
+        "type": "Microsoft.App/managedEnvironments",
+        "name": "cae-jpcom-tdd-eus2",
+        "environment": "",
+        "environments": [],
+        "location": "eastus2",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-nonprod/providers/Microsoft.App/managedEnvironments/cae-jpcom-tdd-eus2",
+        "group": "rg-jpcom-nonprod",
+        "address": "",
+        "managedEnvironment": "",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:11Z"
+        }
+      },
+      {
+        "type": "Microsoft.App/managedEnvironments",
+        "name": "cae-jpcom-uat-eus2",
+        "environment": "",
+        "environments": [],
+        "location": "eastus2",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-nonprod/providers/Microsoft.App/managedEnvironments/cae-jpcom-uat-eus2",
+        "group": "rg-jpcom-nonprod",
+        "address": "",
+        "managedEnvironment": "",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:11Z"
+        }
+      },
+      {
+        "type": "Microsoft.App/managedEnvironments",
+        "name": "cae-jpcom-uat-gwc",
+        "environment": "",
+        "environments": [],
+        "location": "germanywestcentral",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-nonprod/providers/Microsoft.App/managedEnvironments/cae-jpcom-uat-gwc",
+        "group": "rg-jpcom-nonprod",
+        "address": "",
+        "managedEnvironment": "",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:11Z"
+        }
+      },
+      {
+        "type": "Microsoft.ContainerRegistry/registries",
+        "name": "acrjpcom7i6mdr",
+        "environment": "",
+        "environments": [],
+        "location": "eastus2",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-nonprod/providers/Microsoft.ContainerRegistry/registries/acrjpcom7i6mdr",
+        "group": "rg-jpcom-nonprod",
+        "address": "",
+        "managedEnvironment": "",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:11Z"
+        }
+      },
+      {
+        "type": "Microsoft.KeyVault/vaults",
+        "name": "kvjpcomtddknd2x",
+        "environment": "tdd",
+        "environments": [
+          "tdd"
+        ],
+        "location": "eastus2",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-nonprod/providers/Microsoft.KeyVault/vaults/kvjpcomtddknd2x",
+        "group": "rg-jpcom-nonprod",
+        "address": "",
+        "managedEnvironment": "",
+        "health": {
+          "status": "available",
+          "source": "resourceHealth",
+          "checkedAt": "2026-10-31T21:39:11Z",
+          "summary": "There aren't any known Azure platform problems affecting this key vault."
+        }
+      },
+      {
+        "type": "Microsoft.KeyVault/vaults",
+        "name": "kvjpcomuathwvox",
+        "environment": "uat",
+        "environments": [
+          "uat"
+        ],
+        "location": "eastus2",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-nonprod/providers/Microsoft.KeyVault/vaults/kvjpcomuathwvox",
+        "group": "rg-jpcom-nonprod",
+        "address": "",
+        "managedEnvironment": "",
+        "health": {
+          "status": "available",
+          "source": "resourceHealth",
+          "checkedAt": "2026-10-31T21:39:11Z",
+          "summary": "There aren't any known Azure platform problems affecting this key vault."
+        }
+      },
+      {
+        "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+        "name": "id-jpcom-acr-push",
+        "environment": "",
+        "environments": [],
+        "location": "eastus2",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-nonprod/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-jpcom-acr-push",
+        "group": "rg-jpcom-nonprod",
+        "address": "",
+        "managedEnvironment": "",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:11Z"
+        }
+      },
+      {
+        "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+        "name": "id-jpcom-deploy-nonprod",
+        "environment": "",
+        "environments": [],
+        "location": "eastus2",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-nonprod/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-jpcom-deploy-nonprod",
+        "group": "rg-jpcom-nonprod",
+        "address": "",
+        "managedEnvironment": "",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:11Z"
+        }
+      },
+      {
+        "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+        "name": "id-jpcom-octopus-config",
+        "environment": "",
+        "environments": [],
+        "location": "eastus2",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-nonprod/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-jpcom-octopus-config",
+        "group": "rg-jpcom-nonprod",
+        "address": "",
+        "managedEnvironment": "",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:11Z"
+        }
+      },
+      {
+        "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+        "name": "id-jpcom-plan",
+        "environment": "",
+        "environments": [],
+        "location": "eastus2",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-nonprod/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-jpcom-plan",
+        "group": "rg-jpcom-nonprod",
+        "address": "",
+        "managedEnvironment": "",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:11Z"
+        }
+      },
+      {
+        "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+        "name": "id-jpcom-tdd-app",
+        "environment": "tdd",
+        "environments": [
+          "tdd"
+        ],
+        "location": "eastus2",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-nonprod/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-jpcom-tdd-app",
+        "group": "rg-jpcom-nonprod",
+        "address": "",
+        "managedEnvironment": "",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:11Z"
+        }
+      },
+      {
+        "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+        "name": "id-jpcom-uat-app",
+        "environment": "uat",
+        "environments": [
+          "uat"
+        ],
+        "location": "eastus2",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-nonprod/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-jpcom-uat-app",
+        "group": "rg-jpcom-nonprod",
+        "address": "",
+        "managedEnvironment": "",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:11Z"
+        }
+      },
+      {
+        "type": "Microsoft.Storage/storageAccounts",
+        "name": "stjpcomtf7i6mdr",
+        "environment": "",
+        "environments": [],
+        "location": "eastus2",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-nonprod/providers/Microsoft.Storage/storageAccounts/stjpcomtf7i6mdr",
+        "group": "rg-jpcom-nonprod",
+        "address": "",
+        "managedEnvironment": "",
+        "health": {
+          "status": "available",
+          "source": "resourceHealth",
+          "checkedAt": "2026-10-31T21:39:11Z",
+          "summary": "There aren't any known Azure platform problems affecting this storage account."
+        }
+      },
+      {
+        "type": "Microsoft.Web/staticSites",
+        "name": "swa-jpcom-tdd-dashboard",
+        "environment": "tdd",
+        "environments": [
+          "tdd"
+        ],
+        "location": "centralus",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-nonprod/providers/Microsoft.Web/staticSites/swa-jpcom-tdd-dashboard",
+        "group": "rg-jpcom-nonprod",
+        "address": "",
+        "managedEnvironment": "",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:11Z"
+        }
+      },
+      {
+        "type": "Microsoft.Web/staticSites",
+        "name": "swa-jpcom-uat-dashboard",
+        "environment": "uat",
+        "environments": [
+          "uat"
+        ],
+        "location": "centralus",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-nonprod/providers/Microsoft.Web/staticSites/swa-jpcom-uat-dashboard",
+        "group": "rg-jpcom-nonprod",
+        "address": "",
+        "managedEnvironment": "",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:11Z"
+        }
+      }
+    ],
+    "prod": [
+      {
+        "type": "Microsoft.App/containerApps",
+        "name": "ca-jpcom-prod-web-aue",
+        "environment": "",
+        "environments": [],
+        "location": "australiaeast",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-prod/providers/Microsoft.App/containerApps/ca-jpcom-prod-web-aue",
+        "group": "rg-jpcom-prod",
+        "address": "https://ca-jpcom-prod-web-aue.blacksmoke-966412e6.australiaeast.azurecontainerapps.io",
+        "managedEnvironment": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-prod/providers/Microsoft.App/managedEnvironments/cae-jpcom-prod-aue",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:35Z"
+        }
+      },
+      {
+        "type": "Microsoft.App/containerApps",
+        "name": "ca-jpcom-prod-web-brs",
+        "environment": "",
+        "environments": [],
+        "location": "brazilsouth",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-prod/providers/Microsoft.App/containerApps/ca-jpcom-prod-web-brs",
+        "group": "rg-jpcom-prod",
+        "address": "https://ca-jpcom-prod-web-brs.nicestone-75ca80d7.brazilsouth.azurecontainerapps.io",
+        "managedEnvironment": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-prod/providers/Microsoft.App/managedEnvironments/cae-jpcom-prod-brs",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:35Z"
+        }
+      },
+      {
+        "type": "Microsoft.App/containerApps",
+        "name": "ca-jpcom-prod-web-eus2",
+        "environment": "",
+        "environments": [],
+        "location": "eastus2",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-prod/providers/Microsoft.App/containerApps/ca-jpcom-prod-web-eus2",
+        "group": "rg-jpcom-prod",
+        "address": "https://ca-jpcom-prod-web-eus2.jollyground-b807abb5.eastus2.azurecontainerapps.io",
+        "managedEnvironment": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-prod/providers/Microsoft.App/managedEnvironments/cae-jpcom-prod-eus2",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:35Z"
+        }
+      },
+      {
+        "type": "Microsoft.App/containerApps",
+        "name": "ca-jpcom-prod-web-gwc",
+        "environment": "",
+        "environments": [],
+        "location": "germanywestcentral",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-prod/providers/Microsoft.App/containerApps/ca-jpcom-prod-web-gwc",
+        "group": "rg-jpcom-prod",
+        "address": "https://ca-jpcom-prod-web-gwc.ashyground-80945c71.germanywestcentral.azurecontainerapps.io",
+        "managedEnvironment": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-prod/providers/Microsoft.App/managedEnvironments/cae-jpcom-prod-gwc",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:35Z"
+        }
+      },
+      {
+        "type": "Microsoft.App/containerApps",
+        "name": "ca-jpcom-prod-web-inc",
+        "environment": "",
+        "environments": [],
+        "location": "centralindia",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-prod/providers/Microsoft.App/containerApps/ca-jpcom-prod-web-inc",
+        "group": "rg-jpcom-prod",
+        "address": "https://ca-jpcom-prod-web-inc.victorioustree-c2da920a.centralindia.azurecontainerapps.io",
+        "managedEnvironment": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-prod/providers/Microsoft.App/managedEnvironments/cae-jpcom-prod-inc",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:35Z"
+        }
+      },
+      {
+        "type": "Microsoft.App/containerApps",
+        "name": "ca-jpcom-prod-web-jpe",
+        "environment": "",
+        "environments": [],
+        "location": "japaneast",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-prod/providers/Microsoft.App/containerApps/ca-jpcom-prod-web-jpe",
+        "group": "rg-jpcom-prod",
+        "address": "https://ca-jpcom-prod-web-jpe.whitegrass-af5960f3.japaneast.azurecontainerapps.io",
+        "managedEnvironment": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-prod/providers/Microsoft.App/managedEnvironments/cae-jpcom-prod-jpe",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:35Z"
+        }
+      },
+      {
+        "type": "Microsoft.App/containerApps",
+        "name": "ca-jpcom-prod-web-sea",
+        "environment": "",
+        "environments": [],
+        "location": "southeastasia",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-prod/providers/Microsoft.App/containerApps/ca-jpcom-prod-web-sea",
+        "group": "rg-jpcom-prod",
+        "address": "https://ca-jpcom-prod-web-sea.ashyrock-7a70726a.southeastasia.azurecontainerapps.io",
+        "managedEnvironment": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-prod/providers/Microsoft.App/managedEnvironments/cae-jpcom-prod-sea",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:35Z"
+        }
+      },
+      {
+        "type": "Microsoft.App/containerApps",
+        "name": "ca-jpcom-prod-web-uan",
+        "environment": "",
+        "environments": [],
+        "location": "uaenorth",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-prod/providers/Microsoft.App/containerApps/ca-jpcom-prod-web-uan",
+        "group": "rg-jpcom-prod",
+        "address": "https://ca-jpcom-prod-web-uan.victoriouswave-7aedfdef.uaenorth.azurecontainerapps.io",
+        "managedEnvironment": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-prod/providers/Microsoft.App/managedEnvironments/cae-jpcom-prod-uan",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:35Z"
+        }
+      },
+      {
+        "type": "Microsoft.App/containerApps",
+        "name": "ca-jpcom-prod-web-uks",
+        "environment": "",
+        "environments": [],
+        "location": "uksouth",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-prod/providers/Microsoft.App/containerApps/ca-jpcom-prod-web-uks",
+        "group": "rg-jpcom-prod",
+        "address": "https://ca-jpcom-prod-web-uks.ashyocean-c2ae15ff.uksouth.azurecontainerapps.io",
+        "managedEnvironment": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-prod/providers/Microsoft.App/managedEnvironments/cae-jpcom-prod-uks",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:35Z"
+        }
+      },
+      {
+        "type": "Microsoft.App/containerApps",
+        "name": "ca-jpcom-prod-web-wus2",
+        "environment": "",
+        "environments": [],
+        "location": "westus2",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-prod/providers/Microsoft.App/containerApps/ca-jpcom-prod-web-wus2",
+        "group": "rg-jpcom-prod",
+        "address": "https://ca-jpcom-prod-web-wus2.bluedune-8f988bcf.westus2.azurecontainerapps.io",
+        "managedEnvironment": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-prod/providers/Microsoft.App/managedEnvironments/cae-jpcom-prod-wus2",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:35Z"
+        }
+      },
+      {
+        "type": "Microsoft.App/containerApps",
+        "name": "ca-jpcom-prod-web-zan",
+        "environment": "",
+        "environments": [],
+        "location": "southafricanorth",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-prod/providers/Microsoft.App/containerApps/ca-jpcom-prod-web-zan",
+        "group": "rg-jpcom-prod",
+        "address": "https://ca-jpcom-prod-web-zan.livelysmoke-e723e271.southafricanorth.azurecontainerapps.io",
+        "managedEnvironment": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-prod/providers/Microsoft.App/managedEnvironments/cae-jpcom-prod-zan",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:35Z"
+        }
+      },
+      {
+        "type": "Microsoft.App/managedEnvironments",
+        "name": "cae-jpcom-prod-aue",
+        "environment": "",
+        "environments": [],
+        "location": "australiaeast",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-prod/providers/Microsoft.App/managedEnvironments/cae-jpcom-prod-aue",
+        "group": "rg-jpcom-prod",
+        "address": "",
+        "managedEnvironment": "",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:35Z"
+        }
+      },
+      {
+        "type": "Microsoft.App/managedEnvironments",
+        "name": "cae-jpcom-prod-brs",
+        "environment": "",
+        "environments": [],
+        "location": "brazilsouth",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-prod/providers/Microsoft.App/managedEnvironments/cae-jpcom-prod-brs",
+        "group": "rg-jpcom-prod",
+        "address": "",
+        "managedEnvironment": "",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:35Z"
+        }
+      },
+      {
+        "type": "Microsoft.App/managedEnvironments",
+        "name": "cae-jpcom-prod-eus2",
+        "environment": "",
+        "environments": [],
+        "location": "eastus2",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-prod/providers/Microsoft.App/managedEnvironments/cae-jpcom-prod-eus2",
+        "group": "rg-jpcom-prod",
+        "address": "",
+        "managedEnvironment": "",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:35Z"
+        }
+      },
+      {
+        "type": "Microsoft.App/managedEnvironments",
+        "name": "cae-jpcom-prod-gwc",
+        "environment": "",
+        "environments": [],
+        "location": "germanywestcentral",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-prod/providers/Microsoft.App/managedEnvironments/cae-jpcom-prod-gwc",
+        "group": "rg-jpcom-prod",
+        "address": "",
+        "managedEnvironment": "",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:35Z"
+        }
+      },
+      {
+        "type": "Microsoft.App/managedEnvironments",
+        "name": "cae-jpcom-prod-inc",
+        "environment": "",
+        "environments": [],
+        "location": "centralindia",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-prod/providers/Microsoft.App/managedEnvironments/cae-jpcom-prod-inc",
+        "group": "rg-jpcom-prod",
+        "address": "",
+        "managedEnvironment": "",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:35Z"
+        }
+      },
+      {
+        "type": "Microsoft.App/managedEnvironments",
+        "name": "cae-jpcom-prod-jpe",
+        "environment": "",
+        "environments": [],
+        "location": "japaneast",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-prod/providers/Microsoft.App/managedEnvironments/cae-jpcom-prod-jpe",
+        "group": "rg-jpcom-prod",
+        "address": "",
+        "managedEnvironment": "",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:35Z"
+        }
+      },
+      {
+        "type": "Microsoft.App/managedEnvironments",
+        "name": "cae-jpcom-prod-sea",
+        "environment": "",
+        "environments": [],
+        "location": "southeastasia",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-prod/providers/Microsoft.App/managedEnvironments/cae-jpcom-prod-sea",
+        "group": "rg-jpcom-prod",
+        "address": "",
+        "managedEnvironment": "",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:35Z"
+        }
+      },
+      {
+        "type": "Microsoft.App/managedEnvironments",
+        "name": "cae-jpcom-prod-uan",
+        "environment": "",
+        "environments": [],
+        "location": "uaenorth",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-prod/providers/Microsoft.App/managedEnvironments/cae-jpcom-prod-uan",
+        "group": "rg-jpcom-prod",
+        "address": "",
+        "managedEnvironment": "",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:35Z"
+        }
+      },
+      {
+        "type": "Microsoft.App/managedEnvironments",
+        "name": "cae-jpcom-prod-uks",
+        "environment": "",
+        "environments": [],
+        "location": "uksouth",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-prod/providers/Microsoft.App/managedEnvironments/cae-jpcom-prod-uks",
+        "group": "rg-jpcom-prod",
+        "address": "",
+        "managedEnvironment": "",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:35Z"
+        }
+      },
+      {
+        "type": "Microsoft.App/managedEnvironments",
+        "name": "cae-jpcom-prod-wus2",
+        "environment": "",
+        "environments": [],
+        "location": "westus2",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-prod/providers/Microsoft.App/managedEnvironments/cae-jpcom-prod-wus2",
+        "group": "rg-jpcom-prod",
+        "address": "",
+        "managedEnvironment": "",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:35Z"
+        }
+      },
+      {
+        "type": "Microsoft.App/managedEnvironments",
+        "name": "cae-jpcom-prod-zan",
+        "environment": "",
+        "environments": [],
+        "location": "southafricanorth",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-prod/providers/Microsoft.App/managedEnvironments/cae-jpcom-prod-zan",
+        "group": "rg-jpcom-prod",
+        "address": "",
+        "managedEnvironment": "",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:35Z"
+        }
+      },
+      {
+        "type": "Microsoft.KeyVault/vaults",
+        "name": "kvjpcomprodegowb",
+        "environment": "prod",
+        "environments": [
+          "prod"
+        ],
+        "location": "eastus2",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-prod/providers/Microsoft.KeyVault/vaults/kvjpcomprodegowb",
+        "group": "rg-jpcom-prod",
+        "address": "",
+        "managedEnvironment": "",
+        "health": {
+          "status": "available",
+          "source": "resourceHealth",
+          "checkedAt": "2026-10-31T21:39:35Z",
+          "summary": "There aren't any known Azure platform problems affecting this key vault."
+        }
+      },
+      {
+        "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+        "name": "id-jpcom-deploy-prod",
+        "environment": "",
+        "environments": [],
+        "location": "eastus2",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-prod/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-jpcom-deploy-prod",
+        "group": "rg-jpcom-prod",
+        "address": "",
+        "managedEnvironment": "",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:35Z"
+        }
+      },
+      {
+        "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+        "name": "id-jpcom-prod-app",
+        "environment": "prod",
+        "environments": [
+          "prod"
+        ],
+        "location": "eastus2",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-prod/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-jpcom-prod-app",
+        "group": "rg-jpcom-prod",
+        "address": "",
+        "managedEnvironment": "",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:35Z"
+        }
+      },
+      {
+        "type": "Microsoft.Network/dnszones",
+        "name": "jeffreypalermo.com",
+        "environment": "",
+        "environments": [],
+        "location": "global",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-prod/providers/Microsoft.Network/dnszones/jeffreypalermo.com",
+        "group": "rg-jpcom-prod",
+        "address": "",
+        "managedEnvironment": "",
+        "health": {
+          "status": "available",
+          "source": "resourceHealth",
+          "checkedAt": "2026-10-31T21:39:35Z",
+          "summary": "There aren't any known Azure platform problems affecting this DNS zone."
+        }
+      },
+      {
+        "type": "Microsoft.Web/staticSites",
+        "name": "swa-jpcom-prod-dashboard",
+        "environment": "prod",
+        "environments": [
+          "prod"
+        ],
+        "location": "centralus",
+        "id": "/subscriptions/4a4dfa6d-d434-4b9e-8a88-63bbf61cfb69/resourceGroups/rg-jpcom-prod/providers/Microsoft.Web/staticSites/swa-jpcom-prod-dashboard",
+        "group": "rg-jpcom-prod",
+        "address": "",
+        "managedEnvironment": "",
+        "health": {
+          "status": "succeeded",
+          "source": "provisioningState",
+          "checkedAt": "2026-10-31T21:39:35Z"
+        }
+      }
+    ]
+  }
+}
