@@ -1,0 +1,53 @@
+{
+  "generated": "2026-11-07T09:38:56Z",
+  "currency": "USD",
+  "asOf": "2026-11-06",
+  "system": {
+    "yesterday": 0.21,
+    "last7Days": 1.98,
+    "monthToDate": 1.71
+  },
+  "environments": [
+    {
+      "name": "tdd",
+      "yesterday": 0.0,
+      "last7Days": 0.0,
+      "monthToDate": 0.0,
+      "topServices": []
+    },
+    {
+      "name": "uat",
+      "yesterday": 0.0,
+      "last7Days": 0.0,
+      "monthToDate": 0.0,
+      "topServices": []
+    },
+    {
+      "name": "prod",
+      "yesterday": 0.0,
+      "last7Days": 0.0,
+      "monthToDate": 0.0,
+      "topServices": []
+    },
+    {
+      "name": "shared",
+      "yesterday": 0.21,
+      "last7Days": 1.98,
+      "monthToDate": 1.71,
+      "topServices": [
+        {
+          "name": "Container Registry",
+          "monthToDate": 1.0
+        },
+        {
+          "name": "Azure Container Apps",
+          "monthToDate": 0.62
+        },
+        {
+          "name": "Azure DNS",
+          "monthToDate": 0.1
+        }
+      ]
+    }
+  ]
+}
